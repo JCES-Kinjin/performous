@@ -195,12 +195,8 @@ void ScreenIntro::populateMenu() {
 #ifdef USE_WEBSERVER
 
 void ScreenIntro::draw_webserverNotice() {
-	if(m_webserverNoticeTimeout.get() == 0) {
-		m_drawNotice = !m_drawNotice;
-		m_webserverNoticeTimeout.setValue(5);
-	}
-	std::stringstream m_webserverStatusString;
-	if((webserversetting == 1 || webserversetting == 2) && m_drawNotice) {
+		std::stringstream m_webserverStatusString;
+	if((webserversetting == 1 || webserversetting == 2)) {
 		std::string message = Game::getSingletonPtr()->subscribeWebserverMessages();		
 		m_webserverStatusString << _("Webserver active!\n connect to this computer\nusing: ") << message;
 		theme->WebserverNotice.draw(m_webserverStatusString.str());
