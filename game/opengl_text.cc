@@ -101,11 +101,6 @@ OpenGLText::OpenGLText(TextStyle& _text, double m) {
 	cairo_move_to(dc.get(), 0.5 * border, 0.5 * border);  // Margins needed for border stroke to fit in
 	pango_cairo_update_layout(dc.get(), layout.get());
 	pango_cairo_layout_path(dc.get(), layout.get());
-	// Render text
-	if (_text.fill_col.a > 0.0) {
-		cairo_set_source_rgba(dc.get(), _text.fill_col.r, _text.fill_col.g, _text.fill_col.b, _text.fill_col.a);
-		cairo_fill_preserve(dc.get());
-	}
 	// Render text border
 	if (_text.stroke_col.a > 0.0) {
 		// Use proper line-joins and caps.
@@ -115,7 +110,12 @@ OpenGLText::OpenGLText(TextStyle& _text, double m) {
 		cairo_set_miter_limit(dc.get(), _text.stroke_miterlimit);
 		cairo_set_line_width(dc.get(), border);
 		cairo_set_source_rgba(dc.get(), _text.stroke_col.r, _text.stroke_col.g, _text.stroke_col.b, _text.stroke_col.a);
-		cairo_stroke(dc.get());
+		cairo_stroke_preserve(dc.get());
+	}
+	// Render text
+	if (_text.fill_col.a > 0.0) {
+		cairo_set_source_rgba(dc.get(), _text.fill_col.r, _text.fill_col.g, _text.fill_col.b, _text.fill_col.a);
+		cairo_fill(dc.get());
 	}
 	cairo_pop_group_to_source (dc.get());
 	cairo_set_operator(dc.get(),CAIRO_OPERATOR_OVER);
@@ -261,6 +261,7 @@ void SvgTxtTheme::draw(std::vector<TZoomText>& _text, bool lyrics) {
 		text_x += m_opengl_text[i]->x();
 		text_y = std::max(text_y, m_opengl_text[i]->y());
 	}
+	text_x *= (lyrics ? 1.1 : 1.0);
 
 	double texture_ar = text_x / text_y;
 	m_texture_width = std::min(0.96, text_x / targetWidth); // targetWidth is defined in video_driver.cc, it's the base rendering width, used to project the svg onto a gltexture. currently we're targeting 1366x768 as base resolution.
