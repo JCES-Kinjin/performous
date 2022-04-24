@@ -146,8 +146,7 @@ void ScreenPlaylist::draw() {
 
 Texture* ScreenPlaylist::loadTextureFromMap(fs::path path) {
 	if(m_covers.find(path) == m_covers.end()) {
-		std::pair<fs::path, std::unique_ptr<Texture>> kv = std::make_pair(path, std::make_unique<Texture>(path));
-		m_covers.insert(std::move(kv));
+		m_covers.insert({ path, std::make_unique<Texture>(path) });
 	}
 	try {
 		return m_covers.at(path).get();
@@ -383,7 +382,7 @@ void ScreenPlaylist::createSongMenu(int songNumber) {
 	Game* gm = Game::getSingletonPtr();
 	int size = gm->getCurrentPlayList().getList().size();
 	if (songNumber < size) { //can't move down the last song
-		overlay_menu.add(MenuOption(_("Move Down"), _("Move this song down the list")).call([this, songNumber]() {
+		overlay_menu.add(MenuOption(_("Move down"), _("Move this song down the list")).call([this, songNumber]() {
 			Game* gm = Game::getSingletonPtr();
 			gm->getCurrentPlayList().swap(songNumber -1, songNumber);
 			createSongListMenu();
