@@ -43,10 +43,9 @@ class ConfigItem {
 	std::string const& getShortDesc() const { return m_shortDesc; } ///< get the short description for this ConfigItem
 	std::string const& getLongDesc() const { return m_longDesc; } ///< get the long description for this ConfigItem
 	void addEnum(std::string name); ///< Dynamically adds an enum to all values
-	void removeAllEnums(); /// Removes all the enum values from this entry.
 	void selectEnum(std::string const& name); ///< Set integer value by enum name
 	std::string const getEnumName() const; ///< Returns the selected enum option's text
-	
+
   private:
 	template <typename T> void updateNumeric(xmlpp::Element& elem, int mode); ///< Used internally for loading XML
 	void verifyType(std::string const& t) const; ///< throws std::logic_error if t != type
@@ -69,13 +68,13 @@ class ConfigItem {
 	int m_sel;
 };
 
-typedef std::map<std::string, ConfigItem> Config;
+using Config = std::map<std::string, ConfigItem>;
 extern Config config; ///< A global variable that contains all config items
 
 /** Read config schema and configuration from XML files **/
 void readConfig();
 void populateBackends(const std::list<std::string>& backendList);
-void populateLanguages(const std::map<std::string, std::string>& languages, bool refreshOutDated = false);
+void populateLanguages(const std::map<std::string, std::string>& languages);
 
 /** Write modified config options to user's or system-wide config XML **/
 void writeConfig(bool system = false);
@@ -91,5 +90,5 @@ struct MenuEntry {
 int PaHostApiNameToHostApiTypeId(const std::string& name);
 unsigned int LanguageToLanguageId(const std::string& name);
 
-typedef std::vector<MenuEntry> ConfigMenu;
+using ConfigMenu = std::vector<MenuEntry>;
 extern ConfigMenu configMenu;

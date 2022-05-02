@@ -135,15 +135,15 @@ std::string const ConfigItem::getValue() const {
 	if (this->getName() == "game/language") {
 		int autoLanguageType = 1337;
 		int val = LanguageToLanguageId(this->getEnumName()); // In the case of the language, val is the real value while m_value is the enum case for its cosmetic name.
-		std::string languageName = (val != autoLanguageType) ? this->getEnumName() : _("Auto");
+		std::string languageName = (val != autoLanguageType) ? this->getEnumName() : "Auto";
 		return languageName;
 	}
 	if (m_type == "int") {
 		int val = std::get<int>(m_value);
 		if (val >= 0 && val < int(m_enums.size())) return m_enums[val];
-		return numericFormat<int>(m_value, m_multiplier, m_step) + m_unit;
+		return numericFormat<int>(m_value, m_multiplier, m_step) + _(m_unit);
 	}
-	if (m_type == "float") return numericFormat<double>(m_value, m_multiplier, m_step) + m_unit;
+	if (m_type == "float") return numericFormat<double>(m_value, m_multiplier, m_step) + _(m_unit);
 	if (m_type == "bool") return std::get<bool>(m_value) ? _("Enabled") : _("Disabled");
 	if (m_type == "string") return std::get<std::string>(m_value);
 	if (m_type == "string_list") {
@@ -185,14 +185,6 @@ void ConfigItem::addEnum(std::string name) {
 	m_step = 1;
 }
 
-void ConfigItem::removeAllEnums() {
-	verifyType("int");
-	m_enums.clear();
-	m_min = 0;
-	m_max = int(m_enums.size() - 1);
-	m_step = 1;
-}
-
 void ConfigItem::selectEnum(std::string const& name) {
 	auto it = std::find(m_enums.begin(), m_enums.end(), name);
 	if (it == m_enums.end()) throw std::runtime_error("Enum value " + name + " not found in " + m_shortDesc);
@@ -218,7 +210,9 @@ template <typename T> void ConfigItem::updateNumeric(xmlpp::Element& elem, int m
 	}
 	if (!ns.empty()) {
 		xmlpp::Element& e = dynamic_cast<xmlpp::Element&>(*ns[0]);
-		try { m_unit = getAttribute(e, "unit"); } catch (...) {}
+		try {
+			m_unit = getAttribute(e, "unit");
+		} catch (...) {}
 		std::string m;
 		try {
 			m = getAttribute(e, "multiplier");
@@ -329,7 +323,7 @@ void writeConfig(bool system) {
 			auto newLanguagestr = item.getEnumName();
 			auto currentLanguageId = LanguageToLanguageId(currentLanguageStr);
 			auto newLanguageId = LanguageToLanguageId(newLanguagestr);
-			if ((newLanguagestr == _("Auto") || currentLanguageId != newLanguageId) && !config["game/language"].getOldValue().empty()) {
+			if ((newLanguagestr == "Auto" || currentLanguageId != newLanguageId) && !config["game/language"].getOldValue().empty()) {
 				std::cout << "Wanting to change something, old value: '" << currentLanguageStr << "' new value: '" << newLanguagestr << "'" << std::endl;
 				entryNode->set_attribute("value", std::to_string(newLanguageId));
 				config["game/language"].selectEnum(newLanguagestr);
@@ -449,24 +443,24 @@ int PaHostApiNameToHostApiTypeId (const std::string& name) {
 }
 
 unsigned int LanguageToLanguageId(const std::string& name) {
-	if (name == _("Asturian")) return 1;
-	if (name == _("Danish")) return 2;
-	if (name == _("German")) return 3;
-	if (name == _("English")) return 4;
-	if (name == _("Spanish")) return 5;
-	if (name == _("Persian")) return 6;
-	if (name == _("Finnish")) return 7;
-	if (name == _("French")) return 8;
-	if (name == _("Hungarian")) return 9;
-	if (name == _("Italian")) return 10;
-	if (name == _("Japanese")) return 11;
-	if (name == _("Dutch")) return 12;
-	if (name == _("Polish")) return 13;
-	if (name == _("Portuguese")) return 14;
-	if (name == _("Slovak")) return 15;
-	if (name == _("Swedish")) return 16;
-	if (name == _("Chinese")) return 17;
-	
+	if (name == "Asturian") return 1;
+	if (name == "Danish") return 2;
+	if (name == "German") return 3;
+	if (name == "English") return 4;
+	if (name == "Spanish") return 5;
+	if (name == "Persian") return 6;
+	if (name == "Finnish") return 7;
+	if (name == "French") return 8;
+	if (name == "Hungarian") return 9;
+	if (name == "Italian") return 10;
+	if (name == "Japanese") return 11;
+	if (name == "Dutch") return 12;
+	if (name == "Polish") return 13;
+	if (name == "Portuguese") return 14;
+	if (name == "Slovak") return 15;
+	if (name == "Swedish") return 16;
+	if (name == "Chinese") return 17;
+
 	return 1337; // if no name matched return "Auto" which translates to computer language OR English.
 }
 
@@ -495,11 +489,8 @@ void populateBackends (const std::list<std::string>& backendList) {
 	backendConfig.setOldValue(backendConfig.getEnumName());
 }
 
-void populateLanguages(const std::map<std::string, std::string>& languages, bool refreshOutDated) {
+void populateLanguages(const std::map<std::string, std::string>& languages) {
 	ConfigItem& languageConfig = config["game/language"];
-	if (refreshOutDated) {
-		languageConfig.removeAllEnums();
-	}
 	for (auto const& language : languages) {
 		languageConfig.addEnum(language.second);
 	}
