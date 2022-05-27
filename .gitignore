@@ -1,4 +1,5 @@
 [bB]uild/*
+[bB]uild.*/*
 CMakeLists.txt.user*
 *~
 *.mo
@@ -12,3 +13,4 @@ CMakeFiles
 *.xcodeproj
 /.semaphore/keys-secret.yml
 .vs
+.vscode
