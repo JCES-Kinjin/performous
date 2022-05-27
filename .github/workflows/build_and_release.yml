@@ -300,6 +300,7 @@ jobs:
       - determine_version
       - create_release
     runs-on: macos-latest
+    if: ${{ false }}
     steps:
       - name: Checkout Git
         id: checkout_git
