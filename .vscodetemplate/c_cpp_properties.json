@@ -4,7 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/include/**"
+                "/usr/include/**",
+                "/usr/lib/x86_64-linux-gnu/glib-2.0/include"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
@@ -24,7 +25,8 @@
             "name": "Webserver (Linux)",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/include/**"
+                "/usr/include/**",
+                "/usr/lib/x86_64-linux-gnu/glib-2.0/include"
             ],
             "defines": [
                 "USE_WEBSERVER"
