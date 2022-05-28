@@ -1,6 +1,7 @@
 [bB]uild/*
 [bB]uild.*/*
 CMakeLists.txt.user*
+out/*
 *~
 *.mo
 dylibbundler.log
