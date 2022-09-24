@@ -5,18 +5,11 @@
 #include "fs.hh"
 #include "hiscore.hh"
 #include "players.hh"
+#include "scoreitem.hh"
 #include "songitems.hh"
+#include <optional>
 #include <string>
 #include <ostream>
-
-struct ScoreItem {
-	int score;
-	input::DevType type;
-	std::string track;  ///< includes difficulty
-	std::string track_simple; ///< no difficulty
-	Color color;
-	bool operator<(ScoreItem const& other) const { return score < other.score; }
-};
 
 /**Access to a database for performous which holds
   Player-, Hiscore-, Song-, Track- and (in future)
@@ -76,7 +69,7 @@ private: // will be bypassed by above friend declaration
 public: // methods for database management
 
 	/**A facade for Players::addPlayer.*/
-	void addPlayer(std::string const& name, std::string const& picture = "", int id = -1);
+	void addPlayer(std::string const& name, std::string const& picture = "", std::optional<PlayerId> id = std::nullopt);
 	/**A facade for SongItems::addSong.*/
 	void addSong(std::shared_ptr<Song> s);
 	/**A facade for Hiscore::addHiscore.
@@ -95,7 +88,9 @@ public: // methods for database queries
 	void queryPerSongHiscore(std::ostream & os, std::shared_ptr<Song> s, std::string const& track = std::string()) const;
 	void queryPerPlayerHiscore(std::ostream & os, std::string const& track = std::string()) const;
 
-	bool hasHiscore(Song& s) const;
+	bool hasHiscore(Song const& s) const;
+	unsigned getHiscore(Song const& s) const;
+	unsigned getHiscore(SongPtr const& s) const;
 	bool noPlayers() const;
 
 private:

@@ -2,6 +2,8 @@
 
 #include "unicode.hh"
 #include "libxml++-impl.hh"
+
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -32,12 +34,11 @@ void SongItems::save(xmlpp::Element* songs) {
 	}
 }
 
-int SongItems::addSongItem(std::string const& artist, std::string const& title, int id) {
+SongId SongItems::addSongItem(std::string const& artist, std::string const& title, std::optional<SongId> _id) {
 	SongItem si;
-	if (id==-1) id = assign_id_internal();
-	si.id = id;
+	si.id = _id.value_or(assign_id_internal());
 	songMetadata collateInfo {{"artist", artist}, {"title", title}};
-	UnicodeUtil::collate(collateInfo);		
+	UnicodeUtil::collate(collateInfo);
 	si.artist = collateInfo["artist"];
 	si.title = collateInfo["title"];
 	std::pair<songs_t::iterator, bool> ret = m_songs.insert(si);
@@ -49,17 +50,14 @@ int SongItems::addSongItem(std::string const& artist, std::string const& title, 
 	return si.id;
 }
 
-void SongItems::addSong(std::shared_ptr<Song> song) {
-	int id = lookup(song);
-	if (id == -1)
-	{
-		id = addSongItem(song->artist, song->title);
-	}
-
+void SongItems::addSong(SongPtr song) {
 	SongItem si;
-	si.id = id;
+	// Do NOT use .value_or() here; it gets evaluated and addSongItem() runs regardless of whether we have a value, which results in duplicate entries in the database.
+	auto val = lookup(song);
+	si.id = val ? val.value() : (addSongItem(song->artist, song->title));;
 	auto it = m_songs.find(si);
-	if (it == m_songs.end()) throw SongItemsException("Cant find song which was added just before");
+	if (it == m_songs.end())
+		throw SongItemsException("Cant find song which was added just before");
 	// it->song.reset(song); // does not work, it is a read only structure...
 
 	// fill up the rest of the information
@@ -71,32 +69,40 @@ void SongItems::addSong(std::shared_ptr<Song> song) {
 	m_songs.insert(si);
 }
 
-int SongItems::lookup(std::shared_ptr<Song> song) const {
-	for (auto const& s: m_songs) {
-		if (song->collateByArtistOnly == s.artist && song->collateByTitleOnly == s.title) return s.id;
-	}
-	return -1;
+std::optional<SongId> SongItems::lookup(Song const& song) const {
+	auto const si = std::find_if(m_songs.begin(), m_songs.end(), [&song](SongItem const& si) {
+
+	// This is not always really correct but in most cases these inputs should have been normalized into unicode at one point during their life time.
+		if (song.collateByArtistOnly.length() != si.artist.length() ||
+		song.collateByTitleOnly.length() != si.title.length()) return false; 		
+		
+		return UnicodeUtil::caseEqual(song.collateByArtistOnly, si.artist, true) && UnicodeUtil::caseEqual(song.collateByTitleOnly, si.title, true);
+	});
+	if (si != m_songs.end()) return si->id;
+	return std::nullopt;
 }
 
-int SongItems::lookup(Song& song) const {
-	for (auto const& s: m_songs) {
-		if (song.collateByArtistOnly == s.artist && song.collateByTitleOnly == s.title) return s.id;
-	}
-	return -1;
+SongId SongItems::getSongId(SongPtr const& song) const {
+	auto const it = std::find_if(m_songs.begin(), m_songs.end(), [song](auto const& item){ return item.song == song;});
+
+	if(it == m_songs.end())
+		throw std::logic_error("SongItems::getSongId: Did not find an item matching to song!");
+
+	return it->id;
 }
 
-std::string SongItems::lookup(int id) const {
+std::optional<std::string> SongItems::lookup(const SongId &id) const {
 	SongItem si;
 	si.id = id;
 	auto it = m_songs.find(si);
-	if (it == m_songs.end()) return "Unknown Song";
+	if (it == m_songs.end()) return std::nullopt;
 	else if (!it->song) return it->artist + " - " + it->title;
 	else return it->song->artist + " - " + it->song->title;
 }
 
-int SongItems::assign_id_internal() const {
+SongId SongItems::assign_id_internal() const {
 	// use the last one with highest id
-	auto it = m_songs.rbegin();
-	if (it != m_songs.rend()) return it->id+1;
-	else return 1; // empty set
+	auto it = std::max_element(m_songs.begin(),m_songs.end());
+	if (it != m_songs.end()) return it->id+1;
+	return 0; // empty set
 }

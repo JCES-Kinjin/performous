@@ -23,7 +23,7 @@ InstrumentGraph::InstrumentGraph(Audio& audio, Song const& song, input::DevicePt
   m_arrow_left(findFile("arrow_button_left.svg")),
   m_arrow_right(findFile("arrow_button_right.svg")),
   m_text(findFile("sing_timetxt.svg"), config["graphic/text_lod"].f()),
-  m_selectedTrack(""),
+  m_selectedTrack(),
   m_selectedDifficulty(0),
   m_rejoin(false),
   m_leftymode(false),
@@ -79,20 +79,20 @@ void InstrumentGraph::toggleMenu(int forcestate) {
 
 
 void InstrumentGraph::drawMenu() {
-	ViewTrans view(m_cx.get(), 0.0, 0.75);  // Apply a per-player local perspective
+	ViewTrans view(static_cast<float>(m_cx.get()), 0.0f, 0.75f);  // Apply a per-player local perspective
 	if (m_menu.empty()) return;
-	Dimensions dimensions(1.0); // FIXME: bogus aspect ratio (is this fixable?)
-	if (getGraphType() == input::DevType::DANCEPAD) dimensions.screenTop().middle().stretch(m_width.get(), 1.0);
-	else dimensions.screenBottom().middle().fixedWidth(std::min(m_width.get(), 0.5));
+	Dimensions dimensions(1.0f); // FIXME: bogus aspect ratio (is this fixable?)
+	if (getGraphType() == input::DevType::DANCEPAD) dimensions.screenTop().middle().stretch(static_cast<float>(m_width.get()), 1.0);
+	else dimensions.screenBottom().middle().fixedWidth(static_cast<float>(std::min(m_width.get(), 0.5)));
 	ThemeInstrumentMenu& th = *m_menuTheme;
 	th.back_h.dimensions.fixedHeight(0.08f);
-	m_arrow_up.dimensions.stretch(0.05, 0.05);
-	m_arrow_down.dimensions.stretch(0.05, 0.05);
-	m_arrow_left.dimensions.stretch(0.05, 0.05);
-	m_arrow_right.dimensions.stretch(0.05, 0.05);
+	m_arrow_up.dimensions.stretch(0.05f, 0.05f);
+	m_arrow_down.dimensions.stretch(0.05f, 0.05f);
+	m_arrow_left.dimensions.stretch(0.05f, 0.05f);
+	m_arrow_right.dimensions.stretch(0.05f, 0.05f);
 	const auto cur = &m_menu.current();
-	double w = m_menu.dimensions.w();
-	const float s = std::min(m_width.get(), 0.5) / w;
+	float w = m_menu.dimensions.w();
+	const float s = static_cast<float>(std::min(m_width.get(), 0.5) / w);
 	Transform trans(glmath::scale(s));  // Fit better menu on screen
 	// We need to multiply offset by inverse scale factor to keep it always constant
 	// All these vars are ultimately affected by the scaling matrix
@@ -100,7 +100,7 @@ void InstrumentGraph::drawMenu() {
 	const float button_margin = m_arrow_up.dimensions.w()
 		* (isKeyboard() && getGraphType() != input::DevType::DANCEPAD ? 2.0f : 1.0f);
 	const float step = txth * 0.7f;
-	const float h = m_menu.getOptions().size() * step + step;
+	const float h = static_cast<float>(m_menu.getOptions().size()) * step + step;
 	float y = -h * .5f + step;
 	float x = -w*.5f + step + button_margin;
 	float xx = w*.5f - step - button_margin;
@@ -174,7 +174,7 @@ void InstrumentGraph::drawMenu() {
 			}
 		}
 		// Finally we are at the actual menu item text drawing
-		ColorTrans c(Color::alpha(it->isActive() ? 1.0 : 0.5));
+		ColorTrans c(Color::alpha(it->isActive() ? 1.0f : 0.5f));
 		txt->dimensions.middle(x).center(y);
 		txt->draw(menutext);
 		w = std::max(w, txt->w() + 2 * step + button_margin * 2); // Calculate the widest entry
@@ -184,7 +184,7 @@ void InstrumentGraph::drawMenu() {
 	if (cur->getComment() != "") {
 		//th.comment_bg.dimensions.middle().screenBottom(-0.2);
 		//th.comment_bg.draw();
-		th.comment.dimensions.middle().screenBottom(-0.12);
+		th.comment.dimensions.middle().screenBottom(-0.12f);
 		th.comment.draw(cur->getComment());
 	}
 	// Save the calculated menu dimensions
@@ -204,7 +204,7 @@ void InstrumentGraph::handleCountdown(double time, double beginTime) {
 	if (!dead() && time < beginTime && time >= beginTime - m_countdown - 1) {
 		m_popups.push_back(Popup(m_countdown > 0 ?
 		  std::string("- ") +std::to_string(unsigned(m_countdown))+" -" : "Rock On!",
-		  Color(0.0, 0.0, 1.0), 2.0, m_popupText.get()));
+		  Color(0.0f, 0.0f, 1.0f), 2.0f, m_popupText.get()));
 		  --m_countdown;
 	}
 }
@@ -212,24 +212,24 @@ void InstrumentGraph::handleCountdown(double time, double beginTime) {
 
 Color const& InstrumentGraph::color(unsigned fret) const {
 	static Color fretColors[5] = {
-		Color(0.0, 0.9, 0.0),
-		Color(0.9, 0.0, 0.0),
-		Color(0.9, 0.9, 0.0),
-		Color(0.0, 0.0, 1.0),
-		Color(0.9, 0.4, 0.0)
+		Color(0.0f, 0.9f, 0.0f),
+		Color(0.9f, 0.0f, 0.0f),
+		Color(0.9f, 0.9f, 0.0f),
+		Color(0.0f, 0.0f, 1.0f),
+		Color(0.9f, 0.4f, 0.0f)
 	};
 	if (fret >= m_pads) throw std::logic_error("Invalid fret number in InstrumentGraph::color");
 	if (getGraphType() == input::DevType::DRUMS) {
 		if (fret == 0) fret = 4;
 		else if (fret == 4) fret = 0;
 	}
-	return fretColors[fret];
+	return fretColors[static_cast<size_t>(fret)];
 }
 
 
 void InstrumentGraph::unjoin() {
 	m_jointime = getNaN();
-	m_rejoin = false;
+	m_rejoin.b() = false;
 	m_score = 0;
 	m_starmeter = 0;
 	m_streak = 0;

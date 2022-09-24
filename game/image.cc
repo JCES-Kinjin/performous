@@ -11,11 +11,11 @@
 
 namespace {
 	void writePngHelper(png_structp pngPtr, png_bytep data, png_size_t length) {
-		static_cast<std::ostream*>(png_get_io_ptr(pngPtr))->write((char*)data, length);
+		static_cast<std::ostream*>(png_get_io_ptr(pngPtr))->write((char*)data, static_cast<std::streamsize>(length));
 	}
 
 	void readPngHelper(png_structp pngPtr, png_bytep data, png_size_t length) {
-		static_cast<std::istream*>(png_get_io_ptr(pngPtr))->read((char*)data, length);
+		static_cast<std::istream*>(png_get_io_ptr(pngPtr))->read((char*)data, static_cast<std::streamsize>(length));
 	}
 	void loadPNG_internal(png_structp pngPtr, png_infop infoPtr, std::ifstream& file, Bitmap& bitmap, std::vector<png_bytep>& rows) {
 		if (setjmp(png_jmpbuf(pngPtr))) throw std::runtime_error("Reading PNG failed");
@@ -101,6 +101,8 @@ void writePNG(fs::path const& filename, Bitmap const& img, unsigned stride) {
 	switch (img.fmt) {
 		case pix::Format::RGB: bpp = 3; colorType = PNG_COLOR_TYPE_RGB; break;
 		case pix::Format::CHAR_RGBA: bpp = 4; colorType = PNG_COLOR_TYPE_RGBA; break;
+		case pix::Format::BGR:
+		case pix::Format::INT_ARGB:
 		default:
 			// Byte order would need to be changed for other formats and we don't currently need them...
 			throw std::logic_error("Unsupported pixel format in writePNG_internal");
@@ -125,7 +127,7 @@ void writePNG(fs::path const& filename, Bitmap const& img, unsigned stride) {
 	} cleanup(pngPtr, infoPtr);
 	infoPtr = png_create_info_struct(pngPtr);
 	if (!infoPtr) throw std::runtime_error("png_create_info_struct failed");
-	png_set_gAMA(pngPtr, infoPtr, img.linearPremul ? 1.0 : 2.2);
+	png_set_gAMA(pngPtr, infoPtr, img.linearPremul ? 1.0f : 2.2f);
 	// Write file
 	std::ofstream file(name, std::ios::binary);
 	writePNG_internal(pngPtr, infoPtr, file, img.width, img.height, colorType, rows);
@@ -168,7 +170,7 @@ void loadJPEG(Bitmap& bitmap, fs::path const& filename) {
 	if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) throw std::runtime_error("Cannot read header of " + filename.string());
 	jpeg_start_decompress(&cinfo);
 	bitmap.resize(cinfo.output_width, cinfo.output_height);
-	unsigned stride = (bitmap.width * 3 + 3) & ~3;  // Number of bytes per row (word-aligned)
+	unsigned stride = (bitmap.width * 3 + 3) & ~3u;  // Number of bytes per row (word-aligned)
 	unsigned char* ptr = &bitmap.buf[0];
 	while (cinfo.output_scanline < bitmap.height) {
 		jpeg_read_scanlines(&cinfo, &ptr, 1);
@@ -194,7 +196,7 @@ void Bitmap::crop(const unsigned width, const unsigned height, const unsigned x,
 	unsigned newpos = 0;
 	for (unsigned row = y; row < y + height; row++) {
 		for (unsigned col = x; col < x + width; col++) {
-			for (char subp = 0; subp < bpp; subp++) {
+			for (unsigned char subp = 0; subp < bpp; subp++) {
 				unsigned oldpos = (row * this->width + col) * bpp + subp;
 				if (oldpos != newpos) {
 					buf[newpos] = buf[oldpos];
@@ -208,8 +210,8 @@ void Bitmap::crop(const unsigned width, const unsigned height, const unsigned x,
 }
 
 void Bitmap::copyFromCairo(cairo_surface_t* surface) {
-	size_t width = cairo_image_surface_get_width(surface);
-	size_t height = cairo_image_surface_get_height(surface);
+	unsigned width = static_cast<unsigned>(cairo_image_surface_get_width(surface));
+	unsigned height = static_cast<unsigned>(cairo_image_surface_get_height(surface));
 	resize(width, height);
 	std::memcpy(&buf[0], cairo_image_surface_get_data(surface), buf.size());
 }

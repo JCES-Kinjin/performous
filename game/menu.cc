@@ -40,11 +40,11 @@ MenuOption &Menu::add(MenuOption opt) {
 }
 
 void Menu::move(int dir) {
-	if (dir > 0 && selection_stack.back() < menu_stack.back()->size() - 1) ++selection_stack.back();
+	if (dir > 0 && selection_stack.back() < menu_stack.back()->size() - 1u) ++selection_stack.back();
 	else if (dir < 0 && selection_stack.back() > 0) --selection_stack.back();
 }
 
-void Menu::select(size_t sel) {
+void Menu::select(unsigned sel) {
 	if (sel < menu_stack.back()->size()) selection_stack.back() = sel;
 }
 
@@ -69,7 +69,7 @@ void Menu::action(int dir) {
 
 				if (current().value->getName() == "game/language") {
 					auto &value = config["game/language"];
-					Game::getSingletonPtr()->setLanguage(value.getValue());
+					TranslationEngine::setLanguage(value.getValue(), true);
 				} else if (current().value->getName() == "graphic/stereo3d") {
 					try {
 						std::clog << "video/info: Stereo 3D configuration changed, will reset shaders.\n";
@@ -79,7 +79,7 @@ void Menu::action(int dir) {
 						current().value->b() = false; // Disable 3D if shader fails
 						throw;
 					}
-                                }
+								}
 			}
 			break;
 		}

@@ -15,17 +15,15 @@
 #include <thread>
 #include <vector>
 
-using std::uint32_t;
-
 Shader& getShader(std::string const& name) {
 	return Game::getSingletonPtr()->window().shader(name);  // FIXME
 }
 
 float Dimensions::screenY() const {
 	switch (m_screenAnchor) {
-	  case YAnchor::CENTER: return 0.0;
-	  case YAnchor::TOP: return -0.5 * virtH();
-	  case YAnchor::BOTTOM: return 0.5 * virtH();
+	  case YAnchor::CENTER: return 0.0f;
+	  case YAnchor::TOP: return -0.5f * virtH();
+	  case YAnchor::BOTTOM: return 0.5f * virtH();
 	}
 	throw std::logic_error("Dimensions::screenY(): unknown m_screenAnchor value");
 }
@@ -175,7 +173,8 @@ namespace {
 void Texture::load(Bitmap const& bitmap, bool isText) {
 	glutil::GLErrorChecker glerror("Texture::load");
 	// Initialize dimensions
-	m_width = bitmap.width; m_height = bitmap.height;
+	m_width = static_cast<float>(bitmap.width);
+	m_height = static_cast<float>(bitmap.height);
 	dimensions = Dimensions(bitmap.ar).fixedWidth(1.0f);
 	m_premultiplied = bitmap.linearPremul;
 	UseTexture texture(*this);
@@ -206,4 +205,3 @@ void Texture::draw() const {
 	glBlendFunc(m_premultiplied ? GL_ONE : GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	draw(dimensions, TexCoords(tex.x1, tex.y1, tex.x2, tex.y2));
 }
-

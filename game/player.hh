@@ -1,15 +1,16 @@
 #pragma once
 #include "color.hh"
 #include "fs.hh"
-#include "pitch.hh"
 #include "notes.hh"
 #include "animvalue.hh"
 
+#include <optional>
 #include <string>
 #include <vector>
 #include <utility>
 
 class Song;
+class Analyzer;
 
 /// player class
 struct Player {
@@ -44,16 +45,16 @@ struct Player {
 	/// constructor
 	Player(VocalTrack& vocal, Analyzer& analyzer, size_t frames);
 	/// prepares analyzer
-	void prepare() { m_analyzer.process(); }
+	void prepare();
 	/// updates player stats
 	void update();
 	/// calculate how well last lyrics row went
 	void calcRowRank();
 	/// player activity singing
-	float activity() const { return m_activitytimer / 300.0; }
+	float activity() const { return static_cast<float>(m_activitytimer / 300.0); }
 	/// get player's score
-	int getScore() const {
-		return 10000.0 * m_score;
+	unsigned getScore() const {
+		return static_cast<unsigned>(10000.0 * m_score);
 	}
 	/**Operator for sorting by score.*/
 	bool operator < (Player const& other) const
@@ -62,7 +63,7 @@ struct Player {
 	}
 };
 
-using PlayerId = size_t;
+using PlayerId = unsigned;
 
 /** Static Information of a player, not
   dependent from current song.
@@ -70,11 +71,9 @@ using PlayerId = size_t;
   Used for Players Management.
   */
 struct PlayerItem {
-    static PlayerId UndefinedPlayerId;
+	PlayerItem() = default;
+	PlayerItem(const PlayerId& _id) : id{_id} {}
 
-    PlayerItem() = default;
-    PlayerItem(PlayerId);
-    
 	PlayerId id; ///< unique identifier for this PlayerItem, Link to hiscore
 
 	std::string name; ///< name displayed and used for searching the player

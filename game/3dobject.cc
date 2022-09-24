@@ -50,7 +50,7 @@ void Object3d::loadWavefrontObj(fs::path const& filepath, float scale) {
 			texcoords.push_back(glmath::vec2(x, y));
 		} else if (row.substr(0,2) == "vn") {  // Normals
 			srow >> tempst >> x >> y >> z;
-			double sum = std::abs(x)+std::abs(y)+std::abs(z);
+			float sum = std::abs(x)+std::abs(y)+std::abs(z);
 			if (sum == 0) throw std::runtime_error("Invalid normal in "+filepath.string()+":"+std::to_string(linenumber));
 			x /= sum; y /= sum; z /= sum; // Normalize components
 			normals.push_back(glmath::vec3(x, y, z));
@@ -89,9 +89,9 @@ void Object3d::loadWavefrontObj(fs::path const& filepath, float scale) {
 		bool hasNormals = !i->normals.empty();
 		bool hasTexCoords = !i->texcoords.empty();
 		for (size_t j = 0; j < i->vertices.size(); ++j) {
-			if (hasNormals) m_va.normal(normals[i->normals[j]]);
-			if (hasTexCoords) m_va.texCoord(texcoords[i->texcoords[j]]);
-			m_va.vertex(vertices[i->vertices[j]]);
+			if (hasNormals) m_va.normal(normals[static_cast<size_t>(i->normals[j])]);
+			if (hasTexCoords) m_va.texCoord(texcoords[static_cast<size_t>(i->texcoords[j])]);
+			m_va.vertex(vertices[static_cast<size_t>(i->vertices[j])]);
 		}
 	}
 }

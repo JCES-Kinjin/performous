@@ -12,145 +12,179 @@
 
 #include <SDL_timer.h>
 
-ScreenIntro::ScreenIntro(std::string const& name, Audio& audio): Screen(name), m_audio(audio), m_first(true) {
+ScreenIntro::ScreenIntro(std::string const &name, Audio &audio) : Screen(name), m_audio(audio), m_first(true)
+{
 }
 
-void ScreenIntro::enter() {
+void ScreenIntro::enter()
+{
 	Game::getSingletonPtr()->showLogo();
 
 	m_audio.playMusic(findFile("menu.ogg"), true);
 	m_selAnim = AnimValue(0.0, 10.0);
 	m_submenuAnim = AnimValue(0.0, 3.0);
 	populateMenu();
-	if( m_first ) {
+	if (m_first)
+	{
 		std::string msg;
-		if (!m_audio.hasPlayback()) msg = _("No playback devices could be used.\n");
-		if (!msg.empty()) Game::getSingletonPtr()->dialog(msg + _("\nPlease configure some before playing."));
+		if (!m_audio.hasPlayback())
+			msg = _("No playback devices could be used.\n");
+		if (!msg.empty())
+			Game::getSingletonPtr()->dialog(msg + _("\nPlease configure some before playing."));
 		m_first = false;
 	}
 	reloadGL();
-	webserversetting = config["game/webserver_access"].i();
+	webserversetting = config["game/webserver_access"].ui();
 	m_audio.playSample("notice.ogg");
 }
 
-void ScreenIntro::reloadGL() {
+void ScreenIntro::reloadGL()
+{
 	theme = std::make_unique<ThemeIntro>();
 }
 
-void ScreenIntro::exit() {
+void ScreenIntro::exit()
+{
 	m_menu.clear();
 	theme.reset();
 }
 
-void ScreenIntro::manageEvent(input::NavEvent const& event) {
+void ScreenIntro::manageEvent(input::NavEvent const &event)
+{
 	input::NavButton nav = event.button;
-	if (nav == input::NavButton::CANCEL) {
-		if (m_menu.getSubmenuLevel() == 0) m_menu.moveToLast();  // Move cursor to quit in main menu
-		else m_menu.closeSubmenu(); // One menu level up
+	if (nav == input::NavButton::CANCEL)
+	{
+		if (m_menu.getSubmenuLevel() == 0)
+			m_menu.moveToLast(); // Move cursor to quit in main menu
+		else
+			m_menu.closeSubmenu(); // One menu level up
 	}
-	else if (nav == input::NavButton::DOWN || nav == input::NavButton::MOREDOWN) m_menu.move(1);
-	else if (nav == input::NavButton::UP || nav == input::NavButton::MOREUP) m_menu.move(-1);
-	else if (nav == input::NavButton::RIGHT && m_menu.getSubmenuLevel() >= 2) m_menu.action(1); // Config menu
-	else if (nav == input::NavButton::LEFT && m_menu.getSubmenuLevel() >= 2) m_menu.action(-1); // Config menu
-	else if (nav == input::NavButton::RIGHT && m_menu.getSubmenuLevel() < 2) m_menu.move(1); // Instrument nav hack
-	else if (nav == input::NavButton::LEFT && m_menu.getSubmenuLevel() < 2) m_menu.move(-1); // Instrument nav hack
-	else if (nav == input::NavButton::START) m_menu.action();
-	else if (nav == input::NavButton::PAUSE) m_audio.togglePause();
+	else if (nav == input::NavButton::DOWN || nav == input::NavButton::MOREDOWN)
+		m_menu.move(1);
+	else if (nav == input::NavButton::UP || nav == input::NavButton::MOREUP)
+		m_menu.move(-1);
+	else if (nav == input::NavButton::RIGHT && m_menu.getSubmenuLevel() >= 2)
+		m_menu.action(1); // Config menu
+	else if (nav == input::NavButton::LEFT && m_menu.getSubmenuLevel() >= 2)
+		m_menu.action(-1); // Config menu
+	else if (nav == input::NavButton::RIGHT && m_menu.getSubmenuLevel() < 2)
+		m_menu.move(1); // Instrument nav hack
+	else if (nav == input::NavButton::LEFT && m_menu.getSubmenuLevel() < 2)
+		m_menu.move(-1); // Instrument nav hack
+	else if (nav == input::NavButton::START)
+		m_menu.action();
+	else if (nav == input::NavButton::PAUSE)
+		m_audio.togglePause();
 	// Animation targets
 	m_selAnim.setTarget(m_menu.curIndex());
 	m_submenuAnim.setTarget(m_menu.getSubmenuLevel());
 }
 
-void ScreenIntro::manageEvent(SDL_Event event) {
-	if (event.type == SDL_KEYDOWN && m_menu.getSubmenuLevel() > 0) {
+void ScreenIntro::manageEvent(SDL_Event event)
+{
+	if (event.type == SDL_KEYDOWN && m_menu.getSubmenuLevel() > 0)
+	{
 		// These are only available in config menu
 		int key = event.key.keysym.scancode;
-		uint16_t modifier = event.key.keysym.mod;
-		if (key == SDL_SCANCODE_R && modifier & Platform::shortcutModifier() && m_menu.current().value) {
+		std::uint16_t modifier = event.key.keysym.mod;
+		if (key == SDL_SCANCODE_R && modifier & Platform::shortcutModifier() && m_menu.current().value)
+		{
 			m_menu.current().value->reset(modifier & KMOD_ALT);
 		}
-		else if (key == SDL_SCANCODE_S && modifier & Platform::shortcutModifier()) {
+		else if (key == SDL_SCANCODE_S && modifier & Platform::shortcutModifier())
+		{
 			writeConfig(modifier & KMOD_ALT);
 			Game::getSingletonPtr()->flashMessage((modifier & KMOD_ALT)
-				? _("Settings saved as system defaults.") : _("Settings saved."));
+																								? _("Settings saved as system defaults.")
+																								: _("Settings saved."));
 		}
 	}
 }
 
-void ScreenIntro::draw_menu_options() {
+void ScreenIntro::draw_menu_options()
+{
 	// Variables used for positioning and other stuff
-	double wcounter = 0;
-	const size_t showopts = 5; // Show at most 5 options simultaneously
-	const float x = -0.35;
-	const float start_y = -0.1;
-	const float sel_margin = 0.03;
+	float wcounter = 0.0f;
+	const unsigned showopts = 5; // Show at most 5 options simultaneously
+	const float x = -0.35f;
+	const float start_y = -0.1f;
+	const float sel_margin = 0.03f;
 	const MenuOptions &opts = m_menu.getOptions();
-	double submenuanim = 1.0 - std::min(1.0, std::abs(m_submenuAnim.get()-m_menu.getSubmenuLevel()));
+	double submenuanim = 1.0 - std::min(1.0, std::abs(m_submenuAnim.get() - m_menu.getSubmenuLevel()));
 	theme->back_h.dimensions.fixedHeight(0.038f);
 	theme->back_h.dimensions.stretch(m_menu.dimensions.w(), theme->back_h.dimensions.h());
 	// Determine from which item to start
-	int start_i = std::min((int)m_menu.curIndex() - 1, (int)opts.size() - (int)showopts
-		+ (m_menu.getSubmenuLevel() == 2 ? 1 : 0)); // Hack to counter side-effects from displaying the value inside the menu
-	if (start_i < 0 || opts.size() == showopts) start_i = 0;
+	int start_i = std::min(static_cast<int>(m_menu.curIndex() - 1), static_cast<int>(opts.size() - showopts + (m_menu.getSubmenuLevel() == 2 ? 1 : 0))); // Hack to counter side-effects from displaying the value inside the menu
+	if (start_i < 0 || opts.size() == showopts)
+		start_i = 0;
 
 	// Loop the currently visible options
-	for (size_t i = start_i, ii = 0; ii < showopts && i < opts.size(); ++i, ++ii) {
-		MenuOption const& opt = opts[i];
-		ColorTrans c(Color::alpha(submenuanim));
+	for (unsigned i = static_cast<unsigned>(start_i), ii = 0; ii < showopts && i < static_cast<unsigned>(opts.size()); ++i, ++ii)
+	{
+		MenuOption const &opt = opts[i];
+		ColorTrans c(Color::alpha(static_cast<float>(submenuanim)));
 
 		// Selection
-		if (i == m_menu.curIndex()) {
+		if (i == m_menu.curIndex())
+		{
 			// Animate selection higlight moving
 			double selanim = m_selAnim.get() - start_i;
-			if (selanim < 0) selanim = 0;
-			theme->back_h.dimensions.left(x - sel_margin).center(start_y + selanim*0.065);
+			if (selanim < 0.0)
+				selanim = 0.0;
+			theme->back_h.dimensions.left(x - sel_margin).center(static_cast<float>(start_y + selanim * 0.065));
 			theme->back_h.draw();
 			// Draw the text, dim if option not available
 			{
-				ColorTrans c(Color::alpha(opt.isActive() ? 1.0 : 0.5));
-				theme->option_selected.dimensions.left(x).center(start_y + ii*0.065);
+				ColorTrans c(Color::alpha(opt.isActive() ? 1.0f : 0.5f));
+				theme->option_selected.dimensions.left(x).center(start_y + static_cast<float>(ii) * 0.065f);
 				theme->option_selected.draw(_(opt.getName()));
 			}
-			wcounter = std::max(wcounter, theme->option_selected.w() + 2 * sel_margin); // Calculate the widest entry
+			wcounter = std::max(wcounter, theme->option_selected.w() + 2.0f * sel_margin); // Calculate the widest entry
 			// If this is a config item, show the value below
-			if (opt.type == MenuOption::Type::CHANGE_VALUE) {
+			if (opt.type == MenuOption::Type::CHANGE_VALUE)
+			{
 				++ii; // Use a slot for the value
-				theme->option_selected.dimensions.left(x + sel_margin).center(-0.1 + (selanim+1)*0.065);
+				theme->option_selected.dimensions.left(x + sel_margin).center(static_cast<float>(-0.1 + (selanim + 1.0) * 0.065));
 				theme->option_selected.draw("<  " + _(opt.value->getValue()) + "  >");
 			}
 
-		// Regular option (not selected)
-		} else {
+			// Regular option (not selected)
+		}
+		else
+		{
 			std::string title = _(opt.getName());
-			SvgTxtTheme& txt = getTextObject(title);
-			ColorTrans c(Color::alpha(opt.isActive() ? 1.0 : 0.5));
-			txt.dimensions.left(x).center(start_y + ii*0.065);
+			SvgTxtTheme &txt = getTextObject(title);
+			ColorTrans c(Color::alpha(opt.isActive() ? 1.0f : 0.5f));
+			txt.dimensions.left(x).center(start_y + static_cast<float>(ii) * 0.065f);
 			txt.draw(title);
-			wcounter = std::max(wcounter, txt.w() + 2 * sel_margin); // Calculate the widest entry
+			wcounter = std::max(wcounter, txt.w() + 2.0f * sel_margin); // Calculate the widest entry
 		}
 	}
-	m_menu.dimensions.stretch(wcounter, 1);
+	m_menu.dimensions.stretch(wcounter, 1.0f);
 }
 
-void ScreenIntro::draw() {
+void ScreenIntro::draw()
+{
 	glutil::GLErrorChecker glerror("ScreenIntro::draw()");
 	{
-		float anim = SDL_GetTicks() % 20000 / 20000.0;
-		ColorTrans c(glmath::rotate(TAU * anim, glmath::vec3(1.0, 1.0, 1.0)));
+		float anim = static_cast<float>(SDL_GetTicks() % 20000 / 20000.0);
+		ColorTrans c(glmath::rotate(static_cast<float>(TAU * anim), glmath::vec3(1.0f, 1.0f, 1.0f)));
 		theme->bg.draw();
 	}
-	if (m_menu.current().image) m_menu.current().image->draw();
+	if (m_menu.current().image)
+		m_menu.current().image->draw();
 	// Comment
-	theme->comment_bg.dimensions.center().screenBottom(-0.01);
+	theme->comment_bg.dimensions.center().screenBottom(-0.01f);
 	theme->comment_bg.draw();
-	theme->comment.dimensions.left(-0.48).screenBottom(-0.028);
+	theme->comment.dimensions.left(-0.48f).screenBottom(-0.028f);
 	theme->comment.draw(_(m_menu.current().getComment()));
 	// Key help for config
-	if (m_menu.getSubmenuLevel() > 0) {
-		theme->short_comment_bg.dimensions.stretch(theme->short_comment.w() + 0.065, 0.025);
-		theme->short_comment_bg.dimensions.left(-0.54).screenBottom(-0.054);
+	if (m_menu.getSubmenuLevel() > 0)
+	{
+		theme->short_comment_bg.dimensions.stretch(theme->short_comment.w() + 0.065f, 0.025f);
+		theme->short_comment_bg.dimensions.left(-0.54f).screenBottom(-0.054f);
 		theme->short_comment_bg.draw();
-		theme->short_comment.dimensions.left(-0.48).screenBottom(-0.067);
+		theme->short_comment.dimensions.left(-0.48f).screenBottom(-0.067f);
 		theme->short_comment.draw(_("Ctrl + S to save, Ctrl + R to reset defaults"));
 	}
 	// Menu
@@ -158,14 +192,17 @@ void ScreenIntro::draw() {
 	draw_webserverNotice();
 }
 
-SvgTxtTheme& ScreenIntro::getTextObject(std::string const& txt) {
-	if (theme->options.find(txt) != theme->options.end()) return (*theme->options.at(txt).get());
+SvgTxtTheme &ScreenIntro::getTextObject(std::string const &txt)
+{
+	if (theme->options.find(txt) != theme->options.end())
+		return (*theme->options.at(txt).get());
 	std::pair<std::string, std::unique_ptr<SvgTxtTheme>> kv = std::make_pair(txt, std::make_unique<SvgTxtTheme>(findFile("mainmenu_option.svg"), config["graphic/text_lod"].f()));
 	theme->options.insert(std::move(kv));
 	return (*theme->options.at(txt).get());
 }
 
-void ScreenIntro::populateMenu() {
+void ScreenIntro::populateMenu()
+{
 	MenuImage imgSing(new Texture(findFile("intro_sing.svg")));
 	MenuImage imgPractice(new Texture(findFile("intro_practice.svg")));
 	MenuImage imgConfig(new Texture(findFile("intro_configure.svg")));
@@ -175,20 +212,25 @@ void ScreenIntro::populateMenu() {
 	m_menu.add(MenuOption(translate_noop("Practice"), translate_noop("Check your skills or test the microphones."), imgPractice)).screen("Practice");
 	// Configure menu + submenu options
 	MenuOptions configmain;
-	for (auto const& submenu: configMenu) {
-		if (!submenu.items.empty()) {
+	for (auto const &submenu : configMenu)
+	{
+		if (!submenu.items.empty())
+		{
 			MenuOptions opts;
 			// Process items that belong to that submenu
-			for (auto const& item: submenu.items) {
-				ConfigItem& c = config[item];
+			for (auto const &item : submenu.items)
+			{
+				ConfigItem &c = config[item];
 				opts.emplace_back(MenuOption(c.getShortDesc(), c.getLongDesc()));
-                                opts.back().changer(c);
+				opts.back().changer(c);
 			}
 			configmain.emplace_back(MenuOption(submenu.shortDesc, submenu.longDesc, imgConfig));
-                        configmain.back().submenu(std::move(opts));
-		} else {
+			configmain.back().submenu(std::move(opts));
+		}
+		else
+		{
 			configmain.emplace_back(MenuOption(submenu.shortDesc, submenu.longDesc, imgConfig));
-                        configmain.back().screen(submenu.name);
+			configmain.back().screen(submenu.name);
 		}
 	}
 	m_menu.add(MenuOption(translate_noop("Configure"), translate_noop("Configure audio and game options."), imgConfig)).submenu(std::move(configmain));
@@ -197,15 +239,19 @@ void ScreenIntro::populateMenu() {
 
 #ifdef USE_WEBSERVER
 
-void ScreenIntro::draw_webserverNotice() {
+void ScreenIntro::draw_webserverNotice()
+{
 	std::stringstream m_webserverStatusString;
-	if((webserversetting == 1 || webserversetting == 2)) {
-		std::string message = Game::getSingletonPtr()->subscribeWebserverMessages();		
+	if ((webserversetting == 1 || webserversetting == 2))
+	{
+		std::string message = Game::getSingletonPtr()->subscribeWebserverMessages();
 		m_webserverStatusString << _("Webserver active!\n connect to this computer\nusing: ") << message;
 		theme->WebserverNotice.draw(m_webserverStatusString.str());
 	}
 }
 
 #else
-void ScreenIntro::draw_webserverNotice() {}
+void ScreenIntro::draw_webserverNotice()
+{
+}
 #endif

@@ -37,7 +37,7 @@ namespace glutil {
 	struct stereo3dParams {
 		float sepFactor; // 256
 		float z0; // 260
-		float s3dPadding[2] = {7.0, 13.0}; // 264
+		float s3dPadding[2] = {7.0f, 13.0f}; // 264
 		
 		static GLsizeiptr size() { return sizeof(stereo3dParams); };
 		static GLintptr offset() { return alignOffset(shaderMatrices::size()); };
@@ -65,7 +65,7 @@ namespace glutil {
 		float clock; // 344
 		float scale; // 348
 		glmath::vec2 position; // 352
-		float dnPadding[2] = {7.0, 13.0};
+		float dnPadding[2] = {7.0f, 13.0f};
 
 		static GLsizeiptr size() { return sizeof(danceNoteUniforms); };
 		static GLintptr offset() { return alignOffset(lyricColorUniforms::offset() + lyricColorUniforms::size()); };
@@ -122,7 +122,7 @@ namespace glutil {
 		}
 
 		GLsizei size() const {
-			return m_vertices.size();
+			return static_cast<int>(m_vertices.size());
 		}
 		
 		static GLsizei stride() { return sizeof(VertexInfo); }

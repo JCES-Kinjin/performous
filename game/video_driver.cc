@@ -15,6 +15,9 @@
 #include <SDL_hints.h>
 #include <SDL_rect.h>
 #include <SDL_video.h>
+#include <cstdint>
+
+#define stringify( name ) #name
 
 namespace {
 	float s_width;
@@ -23,13 +26,13 @@ namespace {
 	/// Tests for success when destoryed.
 	struct GLattrSetter {
 		GLattrSetter(SDL_GLattr attr, int value): m_attr(attr), m_value(value) {
-			if (SDL_GL_SetAttribute(attr, value)) std::clog << "video/warning: Error setting GLattr " << m_attr << std::endl;
+			if (SDL_GL_SetAttribute(attr, value)) std::clog << "video/warning: Error setting GLattr " << stringify(m_attr) << std::endl;
 		}
 		~GLattrSetter() {
 			int value;
 			SDL_GL_GetAttribute(m_attr, &value);
 			if (value != m_value)
-				std::clog << "video/warning: Error setting GLattr " << m_attr
+				std::clog << "video/warning: Error setting GLattr " << stringify (m_attr)
 				<< ": requested " << m_value << ", got " << value << std::endl;
 		}
 		SDL_GLattr m_attr;
@@ -37,7 +40,7 @@ namespace {
 	};
 
 	float getSeparation() {
-		return config["graphic/stereo3d"].b() ? 0.001f * config["graphic/stereo3dseparation"].f() : 0.0;
+		return config["graphic/stereo3d"].b() ? 0.001f * config["graphic/stereo3dseparation"].f() : 0.0f;
 	}
 
 	// stump: under MSVC, near and far are #defined to nothing for compatibility with ancient code, hence the underscores.
@@ -59,12 +62,16 @@ GLuint Window::m_vbo = 0;
 GLint Window::bufferOffsetAlignment = -1;
 
 Window::Window() : screen(nullptr, &SDL_DestroyWindow), glContext(nullptr, &SDL_GL_DeleteContext) {
-	std::atexit(SDL_Quit);
 	if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_JOYSTICK))
 		throw std::runtime_error(std::string("SDL_Init failed: ") + SDL_GetError());
 	SDL_JoystickEventState(SDL_ENABLE);
 	{ // Setup GL attributes for context creation
 		SDL_SetHintWithPriority("SDL_HINT_VIDEO_HIGHDPI_DISABLED", "0", SDL_HINT_DEFAULT);
+		GLattrSetter attr_hw(SDL_GL_ACCELERATED_VISUAL, 1);
+		GLattrSetter attr_flush(SDL_GL_CONTEXT_RELEASE_BEHAVIOR, SDL_GL_CONTEXT_RELEASE_BEHAVIOR_FLUSH);
+		GLattrSetter attr_glmaj(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+		GLattrSetter attr_glmin(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+		GLattrSetter attr_glprof(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 		GLattrSetter attr_r(SDL_GL_RED_SIZE, 8);
 		GLattrSetter attr_g(SDL_GL_GREEN_SIZE, 8);
 		GLattrSetter attr_b(SDL_GL_BLUE_SIZE, 8);
@@ -72,10 +79,7 @@ Window::Window() : screen(nullptr, &SDL_DestroyWindow), glContext(nullptr, &SDL_
 		GLattrSetter attr_buf(SDL_GL_BUFFER_SIZE, 32);
 		GLattrSetter attr_d(SDL_GL_DEPTH_SIZE, 24);
 		GLattrSetter attr_db(SDL_GL_DOUBLEBUFFER, 1);
-		GLattrSetter attr_glmaj(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-		GLattrSetter attr_glmin(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-		GLattrSetter attr_glprof(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-		auto flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL;
+		Uint32 flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL;
 		if (config["graphic/highdpi"].b()) { flags |= SDL_WINDOW_ALLOW_HIGHDPI; }
 		else { SDL_SetHintWithPriority("SDL_HINT_VIDEO_HIGHDPI_DISABLED", "1", SDL_HINT_OVERRIDE); }
 		int width = config["graphic/window_width"].i();
@@ -177,7 +181,7 @@ void Window::createShaders() {
 		shader("3dobject").compileFile(findFile("shaders/stereo3d.geom"));
 		shader("dancenote").compileFile(findFile("shaders/stereo3d.geom"));
 		}
-		else { 
+		else {
 		std::clog << "video/warning: Stereo3D was enabled but the 'GL_ARB_viewport_array' extension is unsupported; will now disable Stereo3D." << std::endl;
 		config["graphic/stereo3d"].b() = false;
 		}
@@ -209,7 +213,7 @@ void Window::createShaders() {
 	  .compileFile(findFile("shaders/core.frag"))
 	  .link()
 	  .bindUniformBlocks();
-	
+
 	updateColor();
 	view(0);  // For loading screens
 }
@@ -218,11 +222,11 @@ void Window::initBuffers() {
 	glGenVertexArrays(1, &Window::m_vao); // Create VAO.
 	glBindVertexArray(Window::m_vao);
 	glGenBuffers(1, &Window::m_vbo); // Create VBO.
-	glGenBuffers(1, &Window::m_ubo); // Create UBO.	
+	glGenBuffers(1, &Window::m_ubo); // Create UBO.
 
 	GLsizei stride = glutil::VertexArray::stride();
 	glBindBuffer(GL_ARRAY_BUFFER, Window::m_vbo);
-	
+
 	glEnableVertexAttribArray(vertPos);
 	glVertexAttribPointer(vertPos, 3, GL_FLOAT, GL_FALSE, stride, (void *)offsetof(glutil::VertexInfo, vertPos));
 	glEnableVertexAttribArray(vertTexCoord);
@@ -240,6 +244,7 @@ Window::~Window() {
 	glDeleteBuffers(1, &m_vbo);
 	glDeleteBuffers(1, &m_ubo);
 	glDeleteVertexArrays(1, &m_vao);
+	SDL_Quit();
 }
 
 void Window::blank() {
@@ -251,12 +256,12 @@ void Window::updateStereo(float sepFactor) {
 			m_stereoUniforms.sepFactor = sepFactor;
 			m_stereoUniforms.z0 = (z0 - 2.0f * near_);
 			glBufferSubData(GL_UNIFORM_BUFFER, m_stereoUniforms.offset(), m_stereoUniforms.size(), &m_stereoUniforms);
-		} catch(...) {}  // Not fatal if 3d shader is missing		
+		} catch(...) {}  // Not fatal if 3d shader is missing
 }
 
-void Window::updateColor() {	
+void Window::updateColor() {
 	m_matrixUniforms.colorMatrix = g_color;
-	glBufferSubData(GL_UNIFORM_BUFFER, (glutil::shaderMatrices::offset() + offsetof(glutil::shaderMatrices, colorMatrix)), sizeof(glmath::mat4), &m_matrixUniforms.colorMatrix);
+	glBufferSubData(GL_UNIFORM_BUFFER, (glutil::shaderMatrices::offset() + static_cast<GLint>(offsetof(glutil::shaderMatrices, colorMatrix))), sizeof(glmath::mat4), &m_matrixUniforms.colorMatrix);
 }
 
 void Window::updateLyricHighlight(glmath::vec4 const& fill, glmath::vec4 const& stroke, glmath::vec4 const& newFill, glmath::vec4 const& newStroke) {
@@ -278,7 +283,7 @@ void Window::updateTransforms() {
 	mat4 normal(g_modelview);
 	m_matrixUniforms.projMatrix = g_projection;
 	m_matrixUniforms.mvMatrix = g_modelview;
-	m_matrixUniforms.normalMatrix = normal;	
+	m_matrixUniforms.normalMatrix = normal;
 	glBufferSubData(GL_UNIFORM_BUFFER, m_matrixUniforms.offset(), m_matrixUniforms.size(), &m_matrixUniforms);
 }
 
@@ -286,7 +291,7 @@ void Window::render(std::function<void (void)> drawFunc) {
 	glutil::GLErrorChecker glerror("Window::render");
 	ViewTrans trans;  // Default frustum
 	bool stereo = config["graphic/stereo3d"].b();
-	int type = config["graphic/stereo3dtype"].i();
+	unsigned type = config["graphic/stereo3dtype"].ui();
 
 	static bool warn3d = false;
 	if (!stereo) warn3d = false;
@@ -303,12 +308,12 @@ void Window::render(std::function<void (void)> drawFunc) {
 	if (stereo && type == 2 && !m_fullscreen) stereo = false;
 
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	updateStereo(stereo ? getSeparation() : 0.0);
+	updateStereo(stereo ? getSeparation() : 0.0f);
 	glerror.check("setup");
 	// Can we do direct to framebuffer rendering (no FBO)?
 	if (!stereo || type == 2) { view(stereo); drawFunc(); return; }
 	// Render both eyes to FBO (full resolution top/bottom for anaglyph)
-	
+
 	glerror.check("FBO");
 	{
 		UseFBO user(getFBO());
@@ -324,21 +329,21 @@ void Window::render(std::function<void (void)> drawFunc) {
 	view(0);  // Viewport for drawable area
 	glDisable(GL_BLEND);
 	glmath::mat4 colorMatrix = glmath::mat4(1.0f);
-	updateStereo(0.0);  // Disable stereo mode while we composite
+	updateStereo(0.0f);  // Disable stereo mode while we composite
 	glerror.check("FBO->FB setup");
 	for (int num = 0; num < 2; ++num) {
 		{
-			float saturation = 0.5;  // (0..1)
-			float col = (1.0 + 2.0 * saturation) / 3.0;
-			float gry = 0.5 * (1.0 - col);
+			float saturation = 0.5f;  // (0..1)
+			float col = (1.0f + 2.0f * saturation) / 3.0f;
+			float gry = 0.5f * (1.0f - col);
 			bool out[3] = {};  // Which colors to output
 			if (type == 0 && num == 0) { out[0] = true; }  // Red
 			if (type == 0 && num == 1) { out[1] = out[2] = true; }  // Cyan
 			if (type == 1 && num == 0) { out[1] = true; }  // Green
 			if (type == 1 && num == 1) { out[0] = out[2] = true; }  // Magenta
-			for (unsigned i = 0; i < 3; ++i) {
-				for (unsigned j = 0; j < 3; ++j) {
-					float val = 0.0;
+			for (int i = 0; i < 3; ++i) {
+				for (int j = 0; j < 3; ++j) {
+					float val = 0.0f;
 					if (out[i]) val = (i == j ? col : gry);
 					colorMatrix[j][i] = val;
 				}
@@ -346,14 +351,14 @@ void Window::render(std::function<void (void)> drawFunc) {
 		}
 		// Render FBO with 1:1 pixels, properly filtered/positioned for 3d
 		ColorTrans c(colorMatrix);
-		Dimensions dim = Dimensions(getFBO().width() / getFBO().height()).fixedWidth(1.0);
-		dim.center((num == 0 ? 0.25 : -0.25) * dim.h());
+		Dimensions dim = Dimensions(getFBO().width() / getFBO().height()).fixedWidth(1.0f);
+		dim.center((num == 0 ? 0.25f : -0.25f) * dim.h());
 		if (num == 1) {
 			// Right eye blends over the left eye
 			glEnable(GL_BLEND);
 			glBlendFunc(GL_ONE, GL_ONE);
 		}
-		getFBO().getTexture().draw(dim, TexCoords(0.0, 1.0, 1.0, 0));
+		getFBO().getTexture().draw(dim, TexCoords(0.0f, 1.0f, 1.0f, 0));
 	}
 }
 
@@ -375,11 +380,11 @@ void Window::view(unsigned num) {
 		SDL_GetWindowSize(screen.get(), &nativeW, &nativeH);
 	}
 	else { SDL_GL_GetDrawableSize(screen.get(), &nativeW, &nativeH); }
-	float vx = 0.5f * (nativeW - s_width);
-	float vy = 0.5f * (nativeH - s_height);
+	float vx = 0.5f * (static_cast<float>(nativeW) - s_width);
+	float vy = 0.5f * (static_cast<float>(nativeH) - s_height);
 	float vw = s_width, vh = s_height;
 	if (num == 0) {
-		glViewport(vx, vy, vw, vh);  // Drawable area of the window (excluding black bars)
+		glViewport(static_cast<GLint>(vx), static_cast<GLint>(vy), static_cast<GLint>(vw), static_cast<GLint>(vh));  // Drawable area of the window (excluding black bars)
 	} else {
 		// Splitscreen stereo3d
 		if (nativeW == 1280 && nativeH == 1470) {  // HDMI 720p 3D mode
@@ -413,13 +418,13 @@ void Window::event(Uint8 const& eventID, Sint32 const& data1, Sint32 const& data
 				config["graphic/fullscreen"].b() = true;
 				}
 			else { m_needResize = true; }
-			break;	
+			break;
 		case SDL_WINDOWEVENT_RESTORED:
 			if (Platform::currentOS() == Platform::HostOS::OS_MAC) {
 				config["graphic/fullscreen"].b() = false;
 				}
 			else { m_needResize = true; }
-			break;	
+			break;
 		case SDL_WINDOWEVENT_SHOWN:
 			[[fallthrough]];
 		case SDL_WINDOWEVENT_SIZE_CHANGED:
@@ -482,8 +487,8 @@ void Window::resize() {
 		SDL_GetWindowSize(screen.get(), &nativeW, &nativeH);
 	}
 	else { SDL_GL_GetDrawableSize(screen.get(), &nativeW, &nativeH); }
-	s_width = nativeW;
-	s_height = nativeH;
+	s_width = static_cast<float>(nativeW);
+	s_height = static_cast<float>(nativeH);
 	// Enforce aspect ratio limits
 	if (s_height < 0.56f * s_width) s_width = round(s_height / 0.56f);
 	if (s_height > 0.8f * s_width) s_height = round(0.8f * s_width);
@@ -501,9 +506,9 @@ void Window::screenshot() {
 		SDL_GetWindowSize(screen.get(), &nativeW, &nativeH);
 	}
 	else { SDL_GL_GetDrawableSize(screen.get(), &nativeW, &nativeH); }
-	img.width = nativeW;
-	img.height = nativeH;
-	unsigned stride = (img.width * 3 + 3) & ~3;  // Rows are aligned to 4 byte boundaries
+	img.width = static_cast<unsigned>(nativeW);
+	img.height = static_cast<unsigned>(nativeH);
+	unsigned stride = (img.width * 3 + 3) & ~3u;  // Rows are aligned to 4 byte boundaries
 	img.buf.resize(stride * img.height);
 	img.fmt = pix::Format::RGB;
 	img.linearPremul = true; // Not really, but this will use correct gamma.
@@ -553,8 +558,8 @@ ViewTrans::ViewTrans(float offsetX, float offsetY, float frac): m_old(g_projecti
 	float h = virtH();
 	const float f = near_ / z0;  // z0 to nearplane conversion factor
 	// Corners of the screen at z0
-	float x1 = -0.5, x2 = 0.5;
-	float y1 = 0.5 * h, y2 = -0.5 * h;
+	float x1 = -0.5f, x2 = 0.5f;
+	float y1 = 0.5f * h, y2 = -0.5f * h;
 	// Move the perspective point by frac of offset (i.e. move the image)
 	float persX = frac * offsetX, persY = frac * offsetY;
 	x1 -= persX; x2 -= persX;
@@ -588,8 +593,7 @@ Transform::~Transform() {
 glmath::mat4 farTransform() {
 	float z = far_ - 0.1f;  // Very near the far plane but just a bit closer to avoid accidental clipping
 	float s = z / z0;  // Scale the image so that it looks the same size
-	s *= 1.0 + 2.0 * getSeparation(); // A bit more for stereo3d (avoid black borders)
+	s *= 1.0f + 2.0f * getSeparation(); // A bit more for stereo3d (avoid black borders)
 	using namespace glmath;
 	return translate(vec3(0.0f, 0.0f, -z + z0)) * scale(s); // Very near the farplane
 }
-

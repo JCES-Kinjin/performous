@@ -12,6 +12,18 @@ if(WIN32)
 	# 1.0 1.0.1 1.0+ 1.0.1+ 1.0-2-g123abcd 1.0.1-5-g123abcd
 	# We use the 2-3 digits of the version as MAJOR.MINOR.PATCH
 	# and the git patch number as TWEAK
+	set(SUBSYSTEM_WIN32 WIN32)
+	if (DEFINED CMAKE_SOURCE_DIR)
+		if(DEFINED ENV{ORIGINAL_TEMP})
+			set (TMP_LOCATION $ENV{ORIGINAL_TEMP})
+		elseif(DEFINED ENV{TEMP})
+			set (TMP_LOCATION $ENV{TEMP})
+		else()
+			message(WARNING "Temp folder not found. CPack won't be able to create a proper installer.")
+		endif()
+		file(WRITE "${TMP_LOCATION}/source.txt" "${CMAKE_SOURCE_DIR}")
+		file(WRITE "${TMP_LOCATION}/mingwroot.txt" "${CPACK_MINGW_SYSTEM_PREFIX}")
+	endif()
 	string(REGEX REPLACE "\\." ";"  VERSIONING ${PROJECT_VERSION})
 	list(GET VERSIONING -1 LAST_ENTRY)
 	list(REMOVE_AT VERSIONING -1)
@@ -46,10 +58,8 @@ if(WIN32)
 		# According to MinGW tools, we need to compile the rc file, and then link it into projects:
 		# windres foo.rc foores.o
 		# gcc -o foo.exe foo.o foores.o
-		find_library(WSOCK32_LIBRARY wsock32)
-		find_library(WS2_32_LIBRARY ws2_32)
 		if(NOT CMAKE_RC_COMPILER)
-			find_program(CMAKE_RC_COMPILER windres)
+			find_program(CMAKE_RC_COMPILER "${CPACK_MINGW_SYSTEM_PREFIX}/bin/windres")
 		endif()
 		if(NOT CMAKE_RC_COMPILER)
 			message(STATUS "Cannot find windres. Will not create a versioned exe.")
@@ -75,15 +85,15 @@ target_link_libraries(performous PRIVATE ${Boost_LIBRARIES})
 add_library(fs STATIC fs.cc)
 target_include_directories(fs PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 if (USE_BOOST_FS)
-    find_package(Boost 1.55 REQUIRED COMPONENTS filesystem)
+	find_package(Boost 1.55 REQUIRED COMPONENTS filesystem)
 
-    message (STATUS "Using boost::filesystem")
-    target_link_libraries(fs PUBLIC Boost::filesystem)
-    target_compile_definitions(fs PUBLIC -DUSE_BOOST_FS)
+	message (STATUS "Using boost::filesystem")
+	target_link_libraries(fs PUBLIC Boost::filesystem)
+	target_compile_definitions(fs PUBLIC -DUSE_BOOST_FS)
 else()
-    find_package(Filesystem REQUIRED)
-    message (STATUS "Using std::filesystem")
-    target_link_libraries(fs PRIVATE std::filesystem)
+	find_package(Filesystem REQUIRED)
+	message (STATUS "Using std::filesystem")
+	target_link_libraries(fs PRIVATE std::filesystem)
 endif()
 
 find_package(ICU 60 REQUIRED uc data i18n io)
@@ -106,6 +116,11 @@ set(SELF_BUILT_JSON "NEVER" CACHE STRING "rule to allow self build of Json depen
 set(Aubio_REQUIRED_VERSION "0.4.9")
 
 # Find all the libs that don't require extra parameters
+
+if (MINGW)
+	target_link_libraries(performous PRIVATE mingw32)
+endif()
+
 foreach(lib ${OUR_LIBS} SDL2 PangoCairo LibRSVG LibXML++ AVFormat SWResample SWScale ZLIB JPEG PNG PortAudio Fontconfig GLM Json Ced Aubio)
 	find_package(${lib} ${${lib}_REQUIRED_VERSION} REQUIRED)
 	message(STATUS "${lib} includes: ${${lib}_INCLUDE_DIRS}")
@@ -151,22 +166,22 @@ set(ENABLE_WEBCAM AUTO CACHE STRING "Use webcam")
 set_property(CACHE ENABLE_WEBCAM PROPERTY STRINGS AUTO ON OFF)
 if("AUTO" STREQUAL "${ENABLE_WEBCAM}")
 	# webcam support not requested explicitly, best effort try to find it
-	find_package(OpenCV QUIET)
-	if(OpenCV_FOUND)
+	find_package(OpenCV COMPONENTS core videoio)
+	if(OPENCV_VIDEOIO_FOUND)
 		message(STATUS "Webcam support: Enabled (automatically found)")
 	else()
 		message(STATUS "Webcam support: Disabled (OpenCV (libcv/libhighgui) not found)")
 	endif()
 elseif(ENABLE_WEBCAM)
 	# webcam support explicitly requested, make it mandatory
-	find_package(OpenCV REQUIRED)
+	find_package(OpenCV REQUIRED core videoio)
 	message(STATUS "Webcam support: Enabled (explicitly enabled)")
 else()
 	# webcam support explicitly disabled
 	message(STATUS "Webcam support: Disabled (explicitly disabled)")
 endif()
 
-if(OpenCV_FOUND)
+if(OPENCV_VIDEOIO_FOUND)
 	target_include_directories(performous SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
 	target_link_libraries(performous PRIVATE ${OpenCV_LIBS})
 	add_definitions("-DUSE_OPENCV")
@@ -182,6 +197,7 @@ if("AUTO" STREQUAL "${ENABLE_WEBSERVER}")
 		message(STATUS "Webserver support: Enabled (automatically found)")
 	else()
 		message(STATUS "Webserver support: Disabled (cpprestsdk not found)")
+		SET (ENABLE_WEBSERVER OFF FORCE)
 	endif()
 elseif(ENABLE_WEBSERVER)
 	# webserver explicitly requested, make it mandatory
@@ -205,23 +221,14 @@ endif()
 
 if(WIN32)
 	add_definitions("-DEPOXY_SHARED")
-	option(MXE_HACK "Features horrible hacks, but is able to compile a static performous.exe (that may not work)." OFF)
-	mark_as_advanced(MXE_HACK)
-	if(MXE_HACK)
-		execute_process(COMMAND "${CMAKE_SOURCE_DIR}/win32/mxe/libs.sh"
-			OUTPUT_VARIABLE MXE_HACK_STRING
-		)
-		set(CMAKE_CXX_LINK_EXECUTABLE ${CMAKE_CXX_LINK_EXECUTABLE}${MXE_HACK_STRING})
-		add_definitions(-DBOOST_THREAD_USE_LIB)
-	endif()
 	set(BIN_INSTALL .)  # Straight to Program Files/Performous with no bin subfolder.
-	set(SUBSYSTEM_WIN32 WIN32)
+	if(ENABLE_WEBSERVER)
+	  target_link_libraries(performous PRIVATE wsock32 ws2_32)
+	endif()
+elseif(APPLE)
+	set(BIN_INSTALL MacOS)
 else()
 	set(BIN_INSTALL bin)
-endif()
-
-if(WIN32)
-  target_link_libraries(performous PRIVATE wsock32 ws2_32)
 endif()
 
 if(APPLE)
@@ -235,6 +242,43 @@ target_link_libraries(performous PRIVATE fs ced aubio ${LIBS} PkgConfig::deps Th
 
 install(TARGETS performous DESTINATION ${BIN_INSTALL})
 
+if (APPLE AND ${CMAKE_GENERATOR} STREQUAL "Xcode")
+	set(PATH "$ENV{PATH}")
+	EXECUTE_PROCESS(
+		COMMAND /usr/bin/defaults read -g AppleLanguages
+		OUTPUT_VARIABLE PERFORMOUS_LANG
+		OUTPUT_STRIP_TRAILING_WHITESPACE
+	)
+	string(REGEX REPLACE
+	"[ \"\(\)\t\r\n]"
+	""
+	PERFORMOUS_LANG
+	${PERFORMOUS_LANG}
+	)
+	string(REGEX REPLACE
+	"-([A-Z][A-Z]),"
+	"_\\1; "
+	PERFORMOUS_LANG
+	${PERFORMOUS_LANG}
+	)
+	set(PERFORMOUS_LANG ${PERFORMOUS_LANG})
+	list(GET PERFORMOUS_LANG 0 PERFORMOUS_LANG)
+	set_target_properties(performous PROPERTIES
+	XCODE_SCHEME_EXECUTABLE "${CMAKE_INSTALL_PREFIX}/${BIN_INSTALL}/performous"
+	XCODE_SCHEME_ARGUMENTS "--log debug"
+	XCODE_SCHEME_ENVIRONMENT "FONTCONFIG_PATH=\"${CMAKE_INSTALL_PREFIX}/${SHARE_INSTALL}/etc/fonts\";
+	GDK_PIXBUF_MODULE_FILE=\"\";
+	LANG=\"${PERFORMOUS_LANG}.UTF-8\""
+	)
+	install (CODE
+	"SET(ENV{PATH} \"${PATH}\")
+	EXECUTE_PROCESS(
+		COMMAND \"${Performous_SOURCE_DIR}/osx-utils/performous-app-build.sh\" --xcode-bundle --no-clean --no-regenerate
+		COMMAND_ECHO STDOUT
+		)"
+	)
+endif()
+
 set_target_properties(performous PROPERTIES INSTALL_RPATH_USE_LINK_PATH TRUE)  # Store library paths in executable
 set_target_properties(performous PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})  # Produce executable in build/, not build/game/
 
@@ -247,21 +291,57 @@ endif()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/config.cmake.hh" "${CMAKE_CURRENT_BINARY_DIR}/config.hh" @ONLY)
 include_directories("${CMAKE_CURRENT_BINARY_DIR}")
 
-if(WIN32)
+if(WIN32 AND MSVC)
 	install(CODE [[
-        file(GET_RUNTIME_DEPENDENCIES
-            RESOLVED_DEPENDENCIES_VAR deps_resolved
-            UNRESOLVED_DEPENDENCIES_VAR deps_unresolved
-            EXECUTABLES $<TARGET_FILE:performous>
-            PRE_EXCLUDE_REGEXES "api-ms-*" "ext-ms-*"
-            POST_EXCLUDE_REGEXES ".*system32/.*\\.dll"
-            )
-        message(STATUS "Resolving runtime dependencies for $<TARGET_FILE:performous>")
-        foreach(dep ${deps_resolved})
-            file(INSTALL ${dep} DESTINATION ${CMAKE_INSTALL_PREFIX})
-        endforeach()
-        foreach(dep ${deps_unresolved})
-            message(WARNING "Runtime dependency ${dep} could not be resolved.")
-        endforeach()
-        ]])
+		file(GET_RUNTIME_DEPENDENCIES
+			RESOLVED_DEPENDENCIES_VAR deps_resolved
+			UNRESOLVED_DEPENDENCIES_VAR deps_unresolved
+			EXECUTABLES $<TARGET_FILE:performous>
+			PRE_EXCLUDE_REGEXES "api-ms-*" "ext-ms-*"
+			POST_EXCLUDE_REGEXES ".*system32/.*\\.dll"
+			)
+		message(STATUS "Resolving runtime dependencies for $<TARGET_FILE:performous>")
+		foreach(dep ${deps_resolved})
+			file(INSTALL ${dep} DESTINATION ${CMAKE_INSTALL_PREFIX})
+		endforeach()
+		foreach(dep ${deps_unresolved})
+			message(WARNING "Runtime dependency ${dep} could not be resolved.")
+		endforeach()
+		]])
+elseif(MINGW)
+	install(
+		CODE [[
+		## Hack: CPack doesn't know about the original source folder.
+		if(DEFINED ENV{ORIGINAL_TEMP})
+			set (TMP_LOCATION $ENV{ORIGINAL_TEMP})
+		elseif(DEFINED ENV{TEMP})
+			set (TMP_LOCATION $ENV{TEMP})
+		else()
+			message(WARNING "Temp folder not found. CPack won't be able to create a proper installer.")
+		endif()
+		file (READ "${TMP_LOCATION}/source.txt" CPACK_TOP_SOURCE_DIR)
+		file (READ "${TMP_LOCATION}/mingwroot.txt" CPACK_MINGW_SYSTEM_PREFIX)
+		execute_process(
+			COMMAND "${CPACK_MINGW_SYSTEM_PREFIX}/../usr/bin/bash.exe" -l -c
+			'${CPACK_TOP_SOURCE_DIR}/win32/mingw64/copydlldeps.sh --indir ${CMAKE_INSTALL_PREFIX} --destdir ${CMAKE_INSTALL_PREFIX} --recursivesrcdir ${CPACK_MINGW_SYSTEM_PREFIX} --copy --objdump ${CPACK_MINGW_SYSTEM_PREFIX}/bin/objdump.exe'
+			WORKING_DIRECTORY "${CPACK_MINGW_SYSTEM_PREFIX}"
+			COMMAND_ECHO STDOUT
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+			ECHO_OUTPUT_VARIABLE
+			OUTPUT_VARIABLE COMMAND_OUTPUT
+			ERROR_STRIP_TRAILING_WHITESPACE
+			ECHO_ERROR_VARIABLE
+			ERROR_VARIABLE COMMAND_OUTPUT
+		)
+	file(INSTALL
+		"${CPACK_MINGW_SYSTEM_PREFIX}/etc/fonts/fonts.conf"
+		"${CPACK_MINGW_SYSTEM_PREFIX}/etc/fonts/conf.d"
+		DESTINATION "${CMAKE_INSTALL_PREFIX}"
+		)
+		## Hack: add performous' fonts dir to the config.
+		file(READ "${CMAKE_INSTALL_PREFIX}/fonts.conf" FILE_CONTENTS)
+		string(REPLACE "<dir>WINDOWSFONTDIR</dir>" "<dir prefix='relative'>./fonts</dir>\n\t<dir>WINDOWSFONTDIR</dir>" FILE_CONTENTS "${FILE_CONTENTS}")
+		file(WRITE "${CMAKE_INSTALL_PREFIX}/fonts.conf" "${FILE_CONTENTS}")
+		]]
+	)
 endif()

@@ -3,9 +3,10 @@
 #include "configuration.hh"
 #include "ffmpeg.hh"
 #include "notes.hh"
-#include "pitch.hh"
 #include "libda/portaudio.hpp"
 #include "aubio/aubio.h"
+#include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <map>
 #include <memory>
@@ -15,6 +16,8 @@
 #include <vector>
 
 const unsigned AUDIO_MAX_ANALYZERS = 11;
+
+int PaHostApiNameToHostApiTypeId (const std::string& name);
 
 struct Output;
 
@@ -32,7 +35,7 @@ class AudioClock {
 	std::atomic<Seconds> m_max{ 0.0s }; ///< Maximum output value for the clock (end of the current audio block)
 	/// Get the current position (current time via parameter, no locking)
 	Seconds pos_internal(Time now) const;
-public:
+  public:
 	/**
 	* Called from audio callback to keep the clock synced.
 	* @param audioPos the current position in the song
@@ -43,30 +46,28 @@ public:
 	Seconds pos() const;
 };
 
+class Analyzer;
+
 struct Device {
 	// Init
-	const unsigned int in, out;
+	const int in, out;
 	const double rate;
-	const unsigned int dev;
+	const PaDeviceIndex dev;
 	portaudio::Stream stream;
 	std::vector<Analyzer*> mics;
 	Output* outptr;
 
-	Device(unsigned int in, unsigned int out, double rate, unsigned int dev);
+	Device(int in, int out, double rate, PaDeviceIndex dev);
 	/// Start
 	void start();
 	/// Stop
 	void stop();
 	/// Callback
-	int operator()(float const* input, float* output, unsigned long frames);
+	int operator()(float const* input, float* output, std::ptrdiff_t frames);
 	/// Returns true if this device is opened for output
 	bool isOutput() const { return outptr != nullptr; }
 	/// Returns true if this device is assigned to the named channel (mic color or "OUT")
-	bool isChannel(std::string const& name) const {
-		if (name == "OUT") return isOutput();
-		for (auto const& m: mics) if (m && m->getId() == name) return true;
-		return false;
-	}
+	bool isChannel(std::string const& name) const;
 };
 
 extern int getBackend();
@@ -75,14 +76,14 @@ class ConfigItem;
 /** @short High level audio playback API **/
 class Audio {
 	friend int getBackend();
-        // static because Port audio once for the whole software lifetime
+		// static because Port audio once for the whole software lifetime
 	static portaudio::Init init;
 	struct Impl;
 	std::unique_ptr<Impl> self;
 	friend class ScreenSongs;
 	friend class Music;
 	static std::recursive_mutex aubio_mutex;
-public:
+  public:
 	typedef std::map<std::string, fs::path> Files;
 	static ConfigItem& backendConfig();
 	Audio();
@@ -136,30 +137,30 @@ public:
 	/** Do a pitch shift - used for guitar whammy bar */
 	void streamBend(std::string track, double pitchFactor);
 	/** Get sample rate */
-	static double getSR() { return 48000.0; }
+	static float getSR() { return 48000.0f; }
 	static unsigned aubio_hop_size;
 	static unsigned aubio_win_size;
 	static std::unique_ptr<aubio_tempo_t, void(*)(aubio_tempo_t*)> aubioTempo;
 };
 
 class Music {
-struct Track {
-	AudioBuffer audioBuffer;
-	float fadeLevel = 1.0f;
-	float pitchFactor = 0.0f;
-	template <typename... Args> Track(Args&&... args): audioBuffer(std::forward<Args>(args)...) {}
-};	
+	struct Track {
+		AudioBuffer audioBuffer;
+		double fadeLevel = 1.0;
+		double pitchFactor = 0.0;
+		template <typename... Args> Track(Args&&... args): audioBuffer(std::forward<Args>(args)...) {}
+	};
 	friend class ScreenSongs;
-	public:
+  public:
 	std::unordered_map<std::string, std::unique_ptr<Track>> tracks; ///< Audio decoders
 	double srate; ///< Sample rate
-	int64_t m_pos = 0; ///< Current sample position
+	std::int64_t m_pos = 0; ///< Current sample position
 	bool m_preview;
 	class AudioClock m_clock;
-	Seconds durationOf(int64_t samples) const { return 1.0s * samples / srate / 2.0; }
+	Seconds durationOf(std::int64_t samples) const { return 1.0s * samples / srate / 2.0; }
 	float* sampleStartPtr = nullptr;
 	float* sampleEndPtr = nullptr;
-public:
+  public:
 	bool suppressCenterChannel = false;
 	double fadeLevel = 0.0;
 	double fadeRate = 0.0;
@@ -167,12 +168,12 @@ public:
 	Music(Audio::Files const& files, unsigned int sr, bool preview);
 	/// Sums the stream to output sample range, returns true if the stream still has audio left afterwards.
 	bool operator()(float* begin, float* end);
-	void seek(double time) { m_pos = time * srate * 2.0; }
+	void seek(double time) { m_pos = static_cast<std::int64_t>(time * srate * 2.0); }
 	/// Get the current position in seconds
 	double pos() const { return m_clock.pos().count(); }
 	double duration() const;
 	/// Prepare (seek) all tracks to current position, return true when done (nonblocking)
 	bool prepare();
 	void trackFade(std::string const& name, double fadeLevel);
-	void trackPitchBend(std::string const& name, double pitchFactor);	
+	void trackPitchBend(std::string const& name, double pitchFactor);
 };

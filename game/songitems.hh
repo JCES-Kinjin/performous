@@ -9,6 +9,7 @@
 #include <vector>
 #include <string>
 #include <stdexcept>
+#include <optional>
 
 /**Exception which will be thrown when loading or
   saving Players fails.*/
@@ -18,9 +19,11 @@ struct SongItemsException: public std::runtime_error {
 	{}
 };
 
+using SongId = unsigned;
+
 struct SongItem
 {
-	int id; ///< The unique id for every song
+	SongId id = 0; ///< The unique id for every song
 
 	/** This data is stored separate because it is read in before
 	  the song is added.
@@ -60,11 +63,11 @@ public:
 	void save(xmlpp::Element *players);
 
 	/**Adds a song item.
-	  If the id is not unique or -1 a new one will be assigned.
+	  If the id does not exist or is not unique, a new one will be assigned.
 	  There will be no check if artist and title already exist - if you
 	  need that you want addSong().
 	 */
-	int addSongItem(std::string const& artist, std::string const& title, int id = -1);
+	SongId addSongItem(std::string const& artist, std::string const& title, std::optional<SongId> id = std::nullopt);
 	/**Adds or Links an already existing song with an songitem.
 
 	  The id will be assigned and artist and title will be filled in.
@@ -79,20 +82,22 @@ public:
 	void addSong(std::shared_ptr<Song> song);
 
 	/**Lookup a songid for a specific song.
-	  @return -1 if no song found.*/
-	int lookup(std::shared_ptr<Song> song) const;
-	int lookup(Song& song) const;
+	  @return a value only if a song was found.*/
+	std::optional<SongId> lookup(std::shared_ptr<Song> song) const { if (song) return lookup(*song); return std::nullopt; };
+	std::optional<SongId> lookup(Song const& song) const;
+
+	SongId getSongId(SongPtr const&) const;
 
 	/**Lookup the artist + title for a specific song.
 	  @return "Unknown Song" if nothing is found.
 	  */
-	std::string lookup (int id) const;
+	std::optional<std::string> lookup (const SongId& id) const;
 
 	std::size_t size() const { return m_songs.size(); }
 
 private:
-	int assign_id_internal() const;
+	SongId assign_id_internal() const;
 
-	typedef std::set<SongItem> songs_t;
+	using songs_t = std::set<SongItem>;
 	songs_t m_songs;
 };

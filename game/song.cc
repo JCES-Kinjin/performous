@@ -14,11 +14,6 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 }
 
-template <typename T> std::optional<T> getJsonEntry(nlohmann::json const& json, const char *name) {
-        if (json.count(name) > 0) return json.at(name).get<T>();
-        return {};
-}
-
 Song::Song(nlohmann::json const& song): dummyVocal(TrackName::LEAD_VOCAL), randomIdx(rand()) {
 	path = getJsonEntry<std::string>(song, "txtFileFolder").value_or("");
 	filename = getJsonEntry<std::string>(song, "txtFile").value_or("");
@@ -66,8 +61,8 @@ Song::Song(nlohmann::json const& song): dummyVocal(TrackName::LEAD_VOCAL), rando
 	if (getJsonEntry<bool>(song, "guitarTracks").value_or(false)) {
 		instrumentTracks.insert(std::make_pair(TrackName::GUITAR, InstrumentTrack(TrackName::GUITAR)));
 	}
-	if (song.count("bpm") > 0) {
-		m_bpms.push_back(BPM(0, 0, song.at("bpm").get<double>()));
+	if (song.contains("bpm")) {
+		m_bpms.push_back(BPM(0, 0, song.at("bpm").get<float>()));
 	}
 	collateUpdate();
 }
@@ -177,8 +172,8 @@ VocalTrack& Song::getVocalTrack(std::string vocalTrack) {
 	}
 }
 
-VocalTrack& Song::getVocalTrack(size_t idx) {
-	if (idx >= vocalTracks.size()) {
+VocalTrack& Song::getVocalTrack(unsigned idx) {
+	if (idx >= static_cast<unsigned>(vocalTracks.size())) {
 		throw std::logic_error("Index " + std::to_string(idx) + " out of bounds in Song::getVocalTrack (size: " + std::to_string(vocalTracks.size()) +").");
 		}
 	VocalTracks::iterator it = vocalTracks.begin();
@@ -191,7 +186,7 @@ double Song::getDurationSeconds() {
 		AVFormatContext *pFormatCtx = avformat_alloc_context();
 		if (avformat_open_input(&pFormatCtx, music["background"].string().c_str(), nullptr, nullptr) == 0) {
 			avformat_find_stream_info(pFormatCtx, nullptr);
-			m_duration = pFormatCtx->duration / AV_TIME_BASE;
+			m_duration = static_cast<double>(pFormatCtx->duration) / static_cast<double>(AV_TIME_BASE);
 			avformat_close_input(&pFormatCtx);
 			avformat_free_context(pFormatCtx);
 			return m_duration;

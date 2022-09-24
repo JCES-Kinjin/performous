@@ -8,7 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 
-bool Hiscore::reachedHiscore(unsigned score, unsigned songid, unsigned level, std::string const& track) const {
+bool Hiscore::reachedHiscore(unsigned score, SongId songid, unsigned short level, std::string const& track) const {
 	if (score > 10000) throw std::logic_error("Invalid score value");
 	if (score < 2000) return false; // come on, did you even try to sing?
 
@@ -23,28 +23,36 @@ bool Hiscore::reachedHiscore(unsigned score, unsigned songid, unsigned level, st
 	return true; // nothing found for that song -> true
 }
 
-void Hiscore::addHiscore(unsigned score, unsigned playerid, unsigned songid, unsigned level, std::string const& track) {
+void Hiscore::addHiscore(unsigned score, const PlayerId& playerid, SongId songid, unsigned short level, std::string const& track) {
 	if (track.empty()) throw std::runtime_error("No track given");
 	if (!reachedHiscore(score, songid, level, track)) return;
 	m_hiscore.insert(HiscoreItem(score, playerid, songid, level, track));
 }
 
-Hiscore::HiscoreVector Hiscore::queryHiscore(unsigned max, unsigned playerid, unsigned songid, std::string const& track) const {
+Hiscore::HiscoreVector Hiscore::queryHiscore(std::optional<PlayerId> playerid, std::optional<SongId> songid, std::string const& track, std::optional<unsigned> max) const {
 	HiscoreVector hv;
 	for (auto const& h: m_hiscore) {
-		if (playerid != unsigned(-1) && playerid != h.playerid) continue;
-		if (songid != unsigned(-1) && songid != h.songid) continue;
+		if (playerid && playerid.value() != h.playerid) continue;
+		if (songid && songid.value() != h.songid) continue;
 		if (currentLevel() != h.level) continue;
 		if (!track.empty() && track != h.track) continue;
-		if (--max == 0) break;
+		if (max && --max.value() == 0) break;
 		hv.push_back(h);
 	}
 	return hv;
 }
 
-bool Hiscore::hasHiscore(unsigned songid) const {
-	for (auto const& h: m_hiscore) if (songid == h.songid && currentLevel() == h.level) return true;
-	return false;
+bool Hiscore::hasHiscore(const SongId& songid) const {
+	return std::any_of(m_hiscore.begin(),m_hiscore.end(), [&songid, level = currentLevel()](auto const& h) {
+		return songid == h.songid && level == h.level;
+	});
+}
+
+unsigned Hiscore::getHiscore(SongId songid) const {
+	for (auto const& score: m_hiscore) 
+		if (songid == score.songid && currentLevel() == score.level) 
+			return score.score;
+	return 0;
 }
 
 void Hiscore::load(xmlpp::NodeSet const& nodes) {
@@ -59,15 +67,15 @@ void Hiscore::load(xmlpp::NodeSet const& nodes) {
 
 
 
-		int playerid = std::stoi(a_playerid->get_value());
-		int songid = std::stoi(a_songid->get_value());
-		unsigned level = 0;
+		PlayerId playerid = stou(a_playerid->get_value());
+		SongId songid = stou(a_songid->get_value());
+		unsigned short level = 0;
 		if (a_level)
-			level = std::stoi(a_level->get_value());
+			level = static_cast<unsigned short>(stou(a_level->get_value()));
 
 		auto tn = xmlpp::get_first_child_text(element);
 		if (!tn) throw std::runtime_error("Score not found");
-		int score = std::stoi(tn->get_content());
+		unsigned score = stou(tn->get_content());
 
 		addHiscore(score, playerid, songid, level, a_track ? a_track->get_value() : "vocals");
 	}
@@ -84,6 +92,6 @@ void Hiscore::save(xmlpp::Element *hiscores) {
 	}
 }
 
-unsigned Hiscore::currentLevel() const {
-	return config["game/difficulty"].i();
+unsigned short Hiscore::currentLevel() const {
+	return config["game/difficulty"].ui();
 }

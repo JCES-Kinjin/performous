@@ -20,7 +20,7 @@ namespace input {
 				m_joysticks.push_back(joy);
 			}
 		}
-		std::string getName(unsigned device) const override {
+		std::string getName(int device) const override {
 			return SDL_JoystickNameForIndex(device);
 		}
 		bool process(Event& event, SDL_Event const& sdlEv) override {
@@ -38,7 +38,11 @@ namespace input {
 				event.value = sdlEv.jhat.value;
 			}
 			else return false;
-			event.source = SourceId(SourceType::JOYSTICK, sdlEv.jbutton.which);  // All j* structures have .which at the same position as jbutton
+			try {
+			event.source = SourceId(SourceType::JOYSTICK, static_cast<unsigned>(sdlEv.jbutton.which));  // All j* structures have .which at the same position as jbutton
+			} catch (std::exception const&) {
+				std::clog << "joystick/error: " + std::to_string(sdlEv.jbutton.which) + " is an invalid SDL_JoystickID." << std::endl;
+			}
 			return true;
 		}
 		typedef std::shared_ptr<SDL_Joystick> JoyPtr;
@@ -63,7 +67,7 @@ void init() {
 	ConfigItem& ci1 = config["game/instrument1"];
 	ConfigItem& ci2 = config["game/instrument2"];
 	ConfigItem& ci3 = config["game/instrument3"];
-	int i = 0;
+	unsigned short i = 0;
 	for (ControllerDefs::const_iterator it = m_controllerDefs.begin(); it != m_controllerDefs.end(); ++it, ++i) {
 		// Add the enum
 		std::string title = it->second.description;
@@ -72,10 +76,10 @@ void init() {
 		ci2.addEnum(title);
 		ci3.addEnum(title);
 		// Check for active items
-		if (i == ci0.i()-1) instruments.push_back("0:" + it->first);
-		if (i == ci1.i()-1) instruments.push_back("1:" + it->first);
-		if (i == ci2.i()-1) instruments.push_back("2:" + it->first);
-		if (i == ci3.i()-1) instruments.push_back("3:" + it->first);
+		if (i == ci0.ui()-1) instruments.push_back("0:" + it->first);
+		if (i == ci1.ui()-1) instruments.push_back("1:" + it->first);
+		if (i == ci2.ui()-1) instruments.push_back("2:" + it->first);
+		if (i == ci3.ui()-1) instruments.push_back("3:" + it->first);
 	}
 
 	// Check all forced instruments

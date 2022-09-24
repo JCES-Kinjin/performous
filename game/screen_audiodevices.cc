@@ -10,8 +10,8 @@
 
 namespace {
 	static const int unassigned_id = -1;  // mic.dev value for unassigned
-	static const float yoff = 0.18; // Offset from center where to place top row
-	static const float xoff = 0.45; // Offset from middle where to place first column
+	static const float yoff = 0.18f; // Offset from center where to place top row
+	static const float xoff = 0.45f; // Offset from middle where to place first column
 
 	bool countRow(std::string needle, std::string const& haystack, int& count) {
 		if (haystack.find(needle) != std::string::npos) ++count;
@@ -68,7 +68,7 @@ void ScreenAudioDevices::enter() {
 	// Populate the mics vector and check open devices
 	load();
 	// TODO: Scrolling would be nicer than just zooming out infinitely
-	float s = std::min(xoff / m_channels.size() / 1.2, yoff*2 / m_devs.size() / 1.1);
+	float s = std::min(xoff / static_cast<float>(m_channels.size()) / 1.2f, yoff*2 / static_cast<float>(m_devs.size()) / 1.1f);
 	m_mic_icon->dimensions.fixedWidth(s);
 	m_pdev_icon->dimensions.fixedWidth(s);
 }
@@ -78,22 +78,22 @@ void ScreenAudioDevices::exit() { m_theme.reset(); }
 void ScreenAudioDevices::manageEvent(input::NavEvent const& event) {
 	Game* gm = Game::getSingletonPtr();
 	input::NavButton nav = event.button;
-	auto& chpos = m_channels[m_selected_column].pos;
-	const unsigned posN = m_devs.size() + 1;
+	int& chpos = m_channels[m_selected_column].pos;
+	const int posN = static_cast<int>(m_devs.size() + 1);
 	if (nav == input::NavButton::CANCEL) gm->activateScreen("Intro");
 	else if (nav == input::NavButton::PAUSE) m_audio.togglePause();
 	else if (m_devs.empty()) return; // The rest work if there are any devices
 	else if (nav == input::NavButton::START) { if (save()) gm->activateScreen("Intro"); }
 	else if (nav == input::NavButton::LEFT && m_selected_column > 0) --m_selected_column;
 	else if (nav == input::NavButton::RIGHT && m_selected_column < m_channels.size()-1) ++m_selected_column;
-	else if (nav == input::NavButton::UP) chpos = (chpos + posN) % posN - 1;
-	else if (nav == input::NavButton::DOWN) chpos = (chpos + posN + 2) % posN - 1;
+	else if (nav == input::NavButton::UP) chpos = static_cast<int>((chpos + posN) % posN - 1);
+	else if (nav == input::NavButton::DOWN) chpos = static_cast<int>((chpos + posN + 2) % posN - 1);
 }
 
 void ScreenAudioDevices::manageEvent(SDL_Event event) {
 	if (event.type == SDL_KEYDOWN) {
 		int key = event.key.keysym.scancode;
-		uint16_t modifier = event.key.keysym.mod;
+		std::uint16_t modifier = event.key.keysym.mod;
 		if (m_devs.empty()) return; // The rest work if there are any config options
 		// Reset to defaults
 		else if (key == SDL_SCANCODE_R && modifier & Platform::shortcutModifier()) {
@@ -107,13 +107,13 @@ void ScreenAudioDevices::draw() {
 	m_theme->bg.draw();
 	if (m_devs.empty()) return;
 	// Calculate spacing between columns/rows
-	const float xstep = (xoff - 0.5 + xoff) / m_channels.size();
-	const float ystep = yoff*2 / m_devs.size();
+	const float xstep = (xoff - 0.5f + xoff) / static_cast<float>(m_channels.size());
+	const float ystep = yoff*2 / static_cast<float>(m_devs.size());
 	// Device text & bg
-	m_theme->device_bg.dimensions.stretch(std::abs(xoff*2.15), m_mic_icon->dimensions.h()*0.9).middle();
-	m_selector->dimensions.stretch(m_mic_icon->dimensions.w() * 1.75, m_mic_icon->dimensions.h() * 1.75);
+	m_theme->device_bg.dimensions.stretch(std::abs(xoff*2.15f), m_mic_icon->dimensions.h()*0.9f).middle();
+	m_selector->dimensions.stretch(m_mic_icon->dimensions.w() * 1.75f, m_mic_icon->dimensions.h() * 1.75f);
 	for (size_t i = 0; i < m_devs.size(); ++i) {
-		const float y = -yoff + i*ystep;
+		const float y = -yoff + static_cast<float>(i)*ystep;
 		float alpha = 1.0f;
 
 		const bool isDevice = (i < m_devs.size());
@@ -125,7 +125,7 @@ void ScreenAudioDevices::draw() {
 		m_theme->device_bg.dimensions.center(y);
 		m_theme->device_bg.draw();
 		ColorTrans c(Color::alpha(alpha));
-		m_theme->device.dimensions.middle(-xstep*0.5).center(y);
+		m_theme->device.dimensions.middle(-xstep*0.5f).center(y);
 		m_theme->device.draw(isDevice ? m_devs[i].desc() : _("- Unassigned -"));
 	}
 	// Icons
@@ -134,8 +134,8 @@ void ScreenAudioDevices::draw() {
 		{
 			ColorTrans c(MicrophoneColor::get(m_channels[i].name));
 			int pos = m_channels[i].pos;
-			if (pos == unassigned_id) pos = m_devs.size();  // Transform -1 to the bottom of the list
-			srf.dimensions.middle(-xoff + xstep*0.5 + i*xstep).center(-yoff+pos*ystep);
+			if (pos == unassigned_id) pos = static_cast<int>(m_devs.size());  // Transform -1 to the bottom of the list
+			srf.dimensions.middle(-xoff + xstep*0.5f + static_cast<float>(i)*xstep).center(-yoff+static_cast<float>(pos)*ystep);
 			srf.draw();
 		}
 		// Selection indicator
@@ -144,14 +144,14 @@ void ScreenAudioDevices::draw() {
 	}
 	m_selector->draw(); // Position already set in the loop
 	// Key help
-	m_theme->comment_bg.dimensions.stretch(1.0, 0.025).middle().screenBottom(-0.054);
+	m_theme->comment_bg.dimensions.stretch(1.0f, 0.025f).middle().screenBottom(-0.054f);
 	m_theme->comment_bg.draw();
-	m_theme->comment.dimensions.left(-0.48).screenBottom(-0.067);
+	m_theme->comment.dimensions.left(-0.48f).screenBottom(-0.067f);
 	m_theme->comment.draw(_("Use arrow keys to configure. Hit Enter/Start to save and test or Esc/Select to cancel. Ctrl + R to reset defaults"));
 	// Additional info
-	m_theme->comment_bg.dimensions.middle().screenBottom(-0.01);
+	m_theme->comment_bg.dimensions.middle().screenBottom(-0.01f);
 	m_theme->comment_bg.draw();
-	m_theme->comment.dimensions.left(-0.48).screenBottom(-0.023);
+	m_theme->comment.dimensions.left(-0.48f).screenBottom(-0.023f);
 	m_theme->comment.draw(_("For advanced device configuration, use command line parameter --audio (use --audiohelp for details)."));
 }
 
@@ -162,8 +162,8 @@ void ScreenAudioDevices::load() {
 	for (auto const& d: m_audio.devices()) {
 		for (auto& c: m_channels) {
 			if (!d.isChannel(c.name)) continue;
-			for (size_t i = 0; i < m_devs.size(); ++i) {
-				if (unsigned(m_devs[i].index) == d.dev) c.pos = i;
+			for (int i = 0; i < static_cast<int>(m_devs.size()); ++i) {
+				if (m_devs[static_cast<size_t>(i)].index == d.dev) c.pos = i;
 			}
 		}
 	}
@@ -176,7 +176,7 @@ bool ScreenAudioDevices::save(bool skip_ui_config) {
 		for (auto const& d: m_devs) {  // PortAudio devices
 			std::string mics = "", pdev = "";
 			for (auto const& c: m_channels) {  // blue, red, ..., OUT
-				if (c.pos == unassigned_id || m_devs[c.pos].idx != d.idx) continue;
+			if (c.pos == unassigned_id || m_devs[static_cast<size_t>(c.pos)].idx != d.idx) continue;
 				if (c.name == "OUT") pdev = "out=2"; // Pdev, only stereo supported
 				else { // Mic
 					if (!mics.empty()) mics += ","; // Add separator if needed

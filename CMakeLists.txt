@@ -28,10 +28,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 
 # Add a sensible build type default and warning because empty means no optimization and no debug info.
-if(NOT CMAKE_BUILD_TYPE)
+if(NOT DEFINED CMAKE_BUILD_TYPE)
 	message("WARNING: CMAKE_BUILD_TYPE is not defined!\n         Defaulting to CMAKE_BUILD_TYPE=RelWithDebInfo. Use ccmake to set a proper value.")
 	set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
-endif(NOT CMAKE_BUILD_TYPE)
+endif(NOT DEFINED CMAKE_BUILD_TYPE)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
 	add_definitions("-DNDEBUG")
@@ -56,12 +56,16 @@ if (APPLE)
 	endif()
 endif()
 
-add_compile_options(-Wall $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wextra> $<$<CXX_COMPILER_ID:gcc>:-fcx-limited-range> $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wconversion>)
-
 if(WIN32)
+	if (MINGW)
+		set(CPACK_MINGW_SYSTEM_PREFIX "C:/msys64/mingw64" CACHE PATH "Path to the mingw-w64 system root.")
+	endif()
 	set(CMAKE_CXX_FLAGS "-DWIN32_LEAN_AND_MEAN ${CMAKE_CXX_FLAGS}")
 	set(SHARE_INSTALL_DEFAULT ".")
 	set(LOCALE_DIR_DEFAULT "locale")
+elseif(APPLE)
+	set(SHARE_INSTALL_DEFAULT "Resources")
+	set(LOCALE_DIR_DEFAULT "Resources/Locale")
 else()
 	set(SHARE_INSTALL_DEFAULT "share/games/performous")
 	set(LOCALE_DIR_DEFAULT "share/locale")
@@ -84,6 +88,10 @@ endif()
 add_subdirectory(data)
 
 add_subdirectory(game)
+
+target_compile_options(performous PRIVATE -Wall $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wextra> $<$<CXX_COMPILER_ID:gcc>:-fcx-limited-range> $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wconversion>)
+
+
 add_subdirectory(docs)
 
 if(NOT APPLE)
@@ -124,7 +132,15 @@ if(NOT CPACK_PACKAGE_VERSION)
 	set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 endif()
 set(CPACK_INSTALL_CMAKE_PROJECTS "${CPACK_INSTALL_CMAKE_PROJECTS};${CMAKE_BINARY_DIR};${PROJECT_NAME};ALL;/")
-set(CPACK_GENERATOR "TGZ;ZIP;DEB;RPM;NSIS")
+
+enable_testing()
+find_package(GTest)
+if(GTest_FOUND)
+	message(STATUS "Testing enabled: Building test host")
+	add_subdirectory(testing)
+else()
+	message(STATUS "Testing disabled: Package gtest missing")
+endif()
 
 # Debian specific settings
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
@@ -165,5 +181,24 @@ set(CPACK_NSIS_FINISH_TITLE "Congratulations Performous is now installed.")
 set(CPACK_NSIS_MUI_HEADERIMAGE "${CMAKE_CURRENT_SOURCE_DIR}/win32/nsis\\\\headerimage.bmp")
 set(CPACK_NSIS_MANIFEST_DPI_AWARE ON)
 set(CPACK_NSIS_BRANDING_TEXT "Performous installer ${PROJECT_VERSION} 2009-${YEAR}")
+
+# macOS specific settings
+set(CPACK_BUNDLE_NAME "Performous")
+set(CPACK_BUNDLE_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/osx-utils/resources/Info.plist")
+set(CPACK_BUNDLE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/osx-utils/resources/Performous.icns")
+
+if (APPLE)
+	set(CPACK_SOURCE_GENERATOR "")
+	set(CPACK_GENERATOR "Bundle")
+	set(CMAKE_XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}")
+elseif(WIN32)
+	set(CPACK_GENERATOR "NSIS64;TGZ;ZIP")
+else()
+	set(CPACK_GENERATOR "TGZ;ZIP;DEB;RPM;NSIS64")
+endif()
+
+if (CMAKE_BUILD_TYPE STREQUAL "Release")
+	set (CPACK_STRIP_FILES TRUE)
+endif()
 
 include(CPack)

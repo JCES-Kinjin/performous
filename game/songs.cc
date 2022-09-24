@@ -1,29 +1,31 @@
 #include "songs.hh"
-
 #include "configuration.hh"
-#include "fs.hh"
-#include "song.hh"
 #include "database.hh"
-#include "i18n.hh"
-#include "profiler.hh"
-#include "libxml++-impl.hh"
-#include "unicode.hh"
-#include "platform.hh"
-
-#include <algorithm>
-#include <cstdlib>
-#include <iostream>
-#include <regex>
-#include <stdexcept>
-
 #include "fs.hh"
+#include "i18n.hh"
+#include "json.hh"
+#include "libxml++-impl.hh"
+#include "log.hh"
+#include "platform.hh"
+#include "profiler.hh"
+#include "song.hh"
+#include "unicode.hh"
+
 #include <fmt/format.h>
 #include <unicode/stsearch.h>
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdlib>
+#include <iostream>
 #include <fstream>
-#include <nlohmann/json.hpp>
+#include <regex>
+#include <stdexcept>
 
-Songs::Songs(Database & database, std::string const& songlist): m_songlist(songlist), m_database(database), m_order(config["songs/sort-order"].i()) {
+Songs::Songs(Database & database, std::string const& songlist):
+  m_songlist(songlist),
+  m_database(database),
+  m_order(config["songs/sort-order"].ui()) {
 	m_updateTimer.setTarget(getInf()); // Using this as a simple timer counting seconds
 	reload();
 }
@@ -51,14 +53,12 @@ void Songs::reload_internal() {
 		m_songs.clear();
 		m_dirty = true;
 	}
-#ifdef USE_WEBSERVER
 	std::clog << "songs/notice: Starting to load all songs from cache." << std::endl;
 	LoadCache();
 	// the following code is used to check that load <=> save are idempotent
 	//CacheSonglist();
 	//return;
 	std::clog << "songs/notice: Done loading the cache. You now have " << loadedSongs() << " songs in your list." << std::endl;
-#endif
 	std::clog << "songs/notice: Starting to load all songs from disk, to update the cache." << std::endl;
 	Profiler prof("songloader");
 	Paths systemSongs = getPathsConfig("paths/system-songs");
@@ -91,24 +91,8 @@ const std::string SONGS_CACHE_JSON_FILE = "songs.json";
 
 void Songs::LoadCache() {
 	const fs::path songsMetaFile = getCacheDir() / SONGS_CACHE_JSON_FILE;
-	std::ifstream file(songsMetaFile.string());
-	auto jsonRoot = nlohmann::json::array();
-	if (file) {
-		try {
-			std::stringstream buffer;
-			buffer << file.rdbuf();
-			file.close();
-			jsonRoot = nlohmann::json::parse(buffer);
-		} catch(std::exception const& e) {
-			std::clog << "songs/error: " << e.what() << std::endl;
-			file.close();
-			return;
-		}
-	} else {
-		std::clog << "songs/info: Could not open songs meta cache file " << songsMetaFile.string() << std::endl;
-		return;
-	}
-
+	auto jsonRoot = readJSON(songsMetaFile);
+	if (jsonRoot.empty()) return;
 	std::vector<std::string> allPaths;
 	for(const auto& songPaths : {getPathsConfig("paths/system-songs"), getPathsConfig("paths/songs")}) {
 		for(const auto& songPath: songPaths) {
@@ -233,50 +217,43 @@ void Songs::CacheSonglist() {
 	}
 
 	fs::path cacheDir = getCacheDir() / SONGS_CACHE_JSON_FILE;
-
-	try {
-		std::ofstream outFile(cacheDir.string());
-		const int spacesCount = 4;
-		outFile << jsonRoot.dump(spacesCount);
-		outFile.close();
-	} catch (std::exception const& e) {
-		std::clog << "songs/error: Could not save " + cacheDir.string() + ": " + e.what() << std::endl;
-		return;
+	writeJSON(jsonRoot, cacheDir);
 	}
-}
 
 void Songs::reload_internal(fs::path const& parent) {
 	if (std::distance(parent.begin(), parent.end()) > 20) { std::clog << "songs/info: >>> Not scanning: " << parent.string() << " (maximum depth reached, possibly due to cyclic symlinks)\n"; return; }
 	try {
 		std::regex expression(R"((\.txt|^song\.ini|^notes\.xml|\.sm)$)", std::regex_constants::icase);
 		for (const auto &dir : fs::directory_iterator(parent)) { //loop through files
+			if (!m_loading) return; // early return in case scanning is long and user wants to exit quickly
 			fs::path p = dir.path();
 			if (fs::is_directory(p)) { reload_internal(p); continue; } //if the file is a folder redo this function with this folder as path
 			if (!regex_search(p.filename().string(), expression)) continue; //if the folder does not contain any of the requested files, ignore it
 			try { //found song file, make a new song with it.
-				auto alreadyInCache = [&] {
+				{
 					std::shared_lock<std::shared_mutex> l(m_mutex);
 					auto it = std::find_if(m_songs.begin(), m_songs.end(), [p](std::shared_ptr<Song> n) {
 						return n->filename == p;
-						});
-					return it != m_songs.end();
-				}();
+					});
+					auto const alreadyInCache =  it != m_songs.end();
 
-				if(alreadyInCache) {
-					continue;
+					if(alreadyInCache) {
+						m_database.addSong(*it);
+						continue;
+					}
 				}
 
 				std::clog << "songs/notice: Found song which was not in the cache: " << p.string() << std::endl;
 
 				std::shared_ptr<Song>s(new Song(p.parent_path(), p));
-				int AdditionalFileIndex = -1;
+				std::ptrdiff_t AdditionalFileIndex = -1;
 				{
 					std::shared_lock<std::shared_mutex> l(m_mutex);
-					for(unsigned int i = 0; i< m_songs.size(); i++) {
-						if(s->filename.extension() != m_songs[i]->filename.extension() && s->filename.stem() == m_songs[i]->filename.stem() &&
-							    s->title == m_songs[i]->title && s->artist == m_songs[i]->artist) {
-							std::clog << "songs/info: >>> Found additional song file: " << s->filename << " for: " << m_songs[i]->filename << std::endl;
-							AdditionalFileIndex = i;
+					for(auto const& song: m_songs) {
+						if(s->filename.extension() != song->filename.extension() && s->filename.stem() == song->filename.stem() &&
+								s->title == song->title && s->artist == song->artist) {
+							std::clog << "songs/info: >>> Found additional song file: " << s->filename << " for: " << song->filename << std::endl;
+							AdditionalFileIndex = &song - &m_songs[0];
 						}
 					}
 				}
@@ -289,6 +266,8 @@ void Songs::reload_internal(fs::path const& parent) {
 				// there is not race while the lock being released as this thread is the only one to modify the song list.
 				std::unique_lock<std::shared_mutex> l(m_mutex);
 				m_songs.push_back(s); //put it in the database, if found twice will appear in double
+				m_database.addSong(s);
+
 				m_dirty = true;
 			} catch (SongParserException& e) {
 				std::clog << e;
@@ -309,13 +288,13 @@ class Songs::RestoreSel {
 	/// constructor
 	RestoreSel(Songs& s): m_s(s), m_sel(s.currentPtr()) {}
 	~RestoreSel() {
-		int pos = 0;
+		std::ptrdiff_t pos = 0;
 		if (auto song = m_sel.lock()) {
-			SongVector& f = m_s.m_filtered;
+			SongCollection& f = m_s.m_filtered;
 			auto it = std::find(f.begin(), f.end(), song);
 			if (it != f.end()) pos = it - f.begin();
 		}
-		m_s.math_cover.setTarget(pos, m_s.size());
+		m_s.math_cover.setTarget(pos, static_cast<std::ptrdiff_t>(m_s.size()));
 	}
 };
 
@@ -323,7 +302,7 @@ void Songs::update() {
 	if (m_dirty && m_updateTimer.get() > 0.5) filter_internal(); // Update with newly loaded songs
 	// A hack to move to the first song when the song screen is entered the first time
 	static bool first = true;
-	if (first) { first = false; math_cover.reset(); math_cover.setTarget(0, size()); }
+	if (first) { first = false; math_cover.reset(); math_cover.setTarget(0, static_cast<std::ptrdiff_t>(size())); }
 }
 
 void Songs::setFilter(std::string const& val) {
@@ -337,40 +316,42 @@ void Songs::filter_internal() {
 	m_dirty = false;
 	RestoreSel restore(*this);
 	try {
-		SongVector filtered;
+		SongCollection filtered = SongCollection();
 		// if filter text is blank and no type filter is set, just display all songs.
 		if (m_filter == std::string() && m_type == 0) {
 			std::shared_lock<std::shared_mutex> l(m_mutex);
 			filtered = m_songs;
 		} else {
-			std::string charset = UnicodeUtil::getCharset(m_filter);
-			icu::UnicodeString filter = ((charset == "UTF-8") ? icu::UnicodeString::fromUTF8(m_filter) : icu::UnicodeString(m_filter.c_str(), charset.c_str()));
-			UErrorCode icuError = U_ZERO_ERROR;
-			
+		
+			auto filter = icu::UnicodeString::fromUTF8(
+				UnicodeUtil::convertToUTF8(m_filter)
+				);
+			icu::ErrorCode icuError;
+
 			std::shared_lock<std::shared_mutex> l(m_mutex);
 			std::copy_if (m_songs.begin(), m_songs.end(), std::back_inserter(filtered), [&](std::shared_ptr<Song> it){
-			// Filter by type first.	
+			// Filter by type first.
 				if (m_type == 1 && !(*it).hasDance()) return false;
 				if (m_type == 2 && !(*it).hasVocals()) return false;
 				if (m_type == 3 && !(*it).hasDuet()) return false;
 				if (m_type == 4 && !(*it).hasGuitars()) return false;
 				if (m_type == 5 && !(*it).hasDrums() && !(*it).hasKeyboard()) return false;
 				if (m_type == 6 && (!(*it).hasVocals() || !(*it).hasGuitars() || (!(*it).hasDrums() && !(*it).hasKeyboard()))) return false;
-				
-		  // If search is not empty, filter by search term.	
+
+		  // If search is not empty, filter by search term.
 				if (!m_filter.empty()) {
-					icu::StringSearch search = icu::StringSearch(filter, icu::UnicodeString::fromUTF8((*it).strFull()), &UnicodeUtil::m_dummyCollator, nullptr, icuError);
+					icu::StringSearch search = icu::StringSearch(filter, icu::UnicodeString::fromUTF8((*it).strFull()), UnicodeUtil::m_searchCollator.get(), nullptr, icuError);
 					return (search.first(icuError) != USEARCH_DONE);
 					}
-					
-		// If we still haven't returned, it must be a type match with an empty search string.			
+
+		// If we still haven't returned, it must be a type match with an empty search string.
 				return true;
 			});
 		}
 		m_filtered.swap(filtered);
 	} catch (...) {
 		std::shared_lock<std::shared_mutex> l(m_mutex);
-		m_filtered = m_songs; // Invalid regex => copy everything
+		SongCollection(m_songs.begin(), m_songs.end()).swap(m_filtered);  // Invalid regex => copy everything
 	}
 	sort_internal();
 }
@@ -380,9 +361,10 @@ namespace {
 	/// A functor that compares songs based on a selected member field of them.
 	template<typename Field> class CmpByField {
 		Field Song::* m_field;
+		bool m_ascending;
 	  public:
 		/** @param field a pointer to the field to use (pointer to member) **/
-		CmpByField(Field Song::* field): m_field(field) {}
+		CmpByField(Field Song::* field, bool ascending): m_field(field), m_ascending(ascending) {}
 		/// Compare left < right
 		bool operator()(Song const& left , Song const& right) {
 			return left.*m_field < right.*m_field;
@@ -392,23 +374,24 @@ namespace {
 			return operator()(*left, *right);
 		}
 	};
-	
+
 	template<> class CmpByField<std::string> {
 		std::string Song::* m_field;
+		bool m_ascending;
 	  public:
 		/** @param field a pointer to the field to use (pointer to member) **/
-		CmpByField(std::string Song::* field): m_field(field) {}
+		CmpByField(std::string Song::* field, bool ascending): m_field(field), m_ascending(ascending) {}
 		/// Compare left < right
 		bool operator()(Song const& left , Song const& right) {
 			icu::UnicodeString leftVal = icu::UnicodeString::fromUTF8(left.*m_field);
 			icu::UnicodeString rightVal = icu::UnicodeString::fromUTF8(right.*m_field);
-			UErrorCode sortError = U_ZERO_ERROR;
-			UCollationResult result = UnicodeUtil::m_sortCollator.compare(leftVal, rightVal, sortError);
-			if (U_SUCCESS(sortError)) {
-			return (result == UCOL_LESS);
+			icu::ErrorCode sortError;
+			UCollationResult result = UnicodeUtil::m_sortCollator->compare(leftVal, rightVal, sortError);
+			if (sortError.isSuccess()) {
+				return result == UCOL_LESS ? m_ascending : !m_ascending;
 			}
 			else {
-			throw std::runtime_error("unicode/error: Sorting comparison error in CmpByField<std::string> ");
+				throw std::runtime_error("unicode/error: Sorting comparison error in CmpByField<std::string> ");
 			}
 		}
 		/// Compare *left < *right
@@ -418,9 +401,9 @@ namespace {
 	};
 
 	/// A helper for easily constructing CmpByField objects
-	template <typename T> CmpByField<T> customComparator(T Song::*field) { return CmpByField<T>(field); }
-	static const int types = 7, orders = 7;
+	template <typename T> CmpByField<T> customComparator(T Song::*field, bool ascending) { return CmpByField<T>(field, ascending); }
 
+	static const unsigned short types = 7, orders = 8;
 }
 
 std::string Songs::typeDesc() const {
@@ -436,27 +419,28 @@ std::string Songs::typeDesc() const {
 	throw std::logic_error("Internal error: unknown type filter in Songs::typeDesc");
 }
 
-void Songs::typeChange(int diff) {
-	if (diff == 0) m_type = 0;
+void Songs::typeChange(SortChange diff) {
+	if (diff == SortChange::RESET) m_type = 0;
 	else {
-		m_type = (m_type + diff) % types;
-		if (m_type < 0) m_type += types;
+		int dir = to_underlying(diff);
+		m_type = static_cast<unsigned short>((m_type + dir) % types);
+		if (m_type >= types) m_type += types;
 	}
 	filter_internal();
 }
 
-void Songs::typeCycle(int cat) {
-	static const int categories[types] = { 0, 1, 2, 2, 3, 3, 4 };
+void Songs::typeCycle(unsigned short cat) {
+	static const unsigned short categories[types] = { 0, 1, 2, 2, 3, 3, 4 };
 	// Find the next matching category
-	int type = 0;
-	for (int t = (categories[m_type] == cat ? m_type + 1 : 0); t < types; ++t) {
+	unsigned short type = 0;
+	for (unsigned short t = (categories[m_type] == cat ? m_type + 1 : 0); t < types; ++t) {
 		if (categories[t] == cat) { type = t; break; }
 	}
 	m_type = type;
 	filter_internal();
 }
 
-std::string Songs::sortDesc() const {
+std::string Songs::getSortDescription() const {
 	std::string str;
 	switch (m_order) {
 	  case 0: str = _("random order"); break;
@@ -466,16 +450,17 @@ std::string Songs::sortDesc() const {
 	  case 4: str = _("sorted by genre"); break;
 	  case 5: str = _("sorted by path"); break;
 	  case 6: str = _("sorted by language"); break;
-	  default: throw std::logic_error("Internal error: unknown sort order in Songs::sortDesc");
+	  case 7: str = _("sorted by score"); break;
+	  default: throw std::logic_error("Internal error: unknown sort order in Songs::getSortDescription");
 	}
 	return str;
 }
 
-void Songs::sortChange(int diff) {
-	m_order = (m_order + diff) % orders;
-	if (m_order < 0) m_order += orders;
+void Songs::sortChange(SortChange diff) {
+	m_order = static_cast<unsigned short>(m_order + to_underlying(diff)) % orders;
+	if (m_order >= orders) m_order += orders;
 	RestoreSel restore(*this);
-	config["songs/sort-order"].i() = m_order;
+	config["songs/sort-order"].ui() = m_order;
 	switch (m_order) {
 		case 1:
 		 [[fallthrough]];
@@ -486,55 +471,74 @@ void Songs::sortChange(int diff) {
 		case 4:
 		 [[fallthrough]];
 		case 6:
-			UErrorCode collatorError = U_ZERO_ERROR;
-			UnicodeUtil::m_sortCollator.setAttribute(UCOL_STRENGTH, (config["game/case-sorting"].b()) ? UCOL_TERTIARY : UCOL_SECONDARY, collatorError);
-			if (U_FAILURE(collatorError)) {
-				std::clog << "sorting/error: Unable to change collator strength." << std::endl;
-			}
-			break;		
+			UnicodeUtil::m_sortCollator->setStrength(config["game/case-sorting"].b() ? icu::Collator::TERTIARY : icu::Collator::SECONDARY);
+			break;
 		}
 	sort_internal();
 	writeConfig(false);
 }
 
-void Songs::sortSpecificChange(int sortOrder, bool descending) {
-	if(sortOrder < 0) {
-		m_order = 0;
-	} else if(sortOrder <= 6) {
-		m_order = sortOrder;
-	} else {
-		m_order = 0;
-	}
+void Songs::sortSpecificChange(unsigned short sortOrder, bool descending) {
+	if(sortOrder < orders) m_order = sortOrder;
+	else m_order = 0;
 	RestoreSel restore(*this);
-	config["songs/sort-order"].i() = m_order;
+	config["songs/sort-order"].ui() = m_order;
 	sort_internal(descending);
 }
 
 void Songs::sort_internal(bool descending) {
-	if(descending) {
+	if(m_order == 0)
+		std::stable_sort(m_filtered.begin(), m_filtered.end(), customComparator(&Song::randomIdx, true));
+	else {
+		auto begin = m_filtered.begin();
+		auto end = m_filtered.end();
+
 		switch (m_order) {
-		  case 0: std::stable_sort(m_filtered.begin(), m_filtered.end(), customComparator(&Song::randomIdx)); break;
-		  case 1: std::sort(m_filtered.rbegin(), m_filtered.rend(), customComparator(&Song::collateByTitle)); break;
-		  case 2: std::sort(m_filtered.rbegin(), m_filtered.rend(), customComparator(&Song::collateByArtist)); break;
-		  case 3: std::sort(m_filtered.rbegin(), m_filtered.rend(), customComparator(&Song::edition)); break;
-		  case 4: std::sort(m_filtered.rbegin(), m_filtered.rend(), customComparator(&Song::genre)); break;
-		  case 5: std::sort(m_filtered.rbegin(), m_filtered.rend(), customComparator(&Song::path)); break;
-		  case 6: std::sort(m_filtered.rbegin(), m_filtered.rend(), customComparator(&Song::language)); break;
-		  default: throw std::logic_error("Internal error: unknown sort order in Songs::sortChange");
-		}
-	} else {
-		switch (m_order) {
-		  case 0: std::stable_sort(m_filtered.begin(), m_filtered.end(), customComparator(&Song::randomIdx)); break;
-		  case 1: std::sort(m_filtered.begin(), m_filtered.end(), customComparator(&Song::collateByTitle)); break;
-		  case 2: std::sort(m_filtered.begin(), m_filtered.end(), customComparator(&Song::collateByArtist)); break;
-		  case 3: std::sort(m_filtered.begin(), m_filtered.end(), customComparator(&Song::edition)); break;
-		  case 4: std::sort(m_filtered.begin(), m_filtered.end(), customComparator(&Song::genre)); break;
-		  case 5: std::sort(m_filtered.begin(), m_filtered.end(), customComparator(&Song::path)); break;
-		  case 6: std::sort(m_filtered.begin(), m_filtered.end(), customComparator(&Song::language)); break;
+		  case 1: std::sort(begin, end, customComparator(&Song::collateByTitle, !descending)); break;
+		  case 2: std::sort(begin, end, customComparator(&Song::collateByArtist, !descending)); break;
+		  case 3: std::sort(begin, end, customComparator(&Song::edition, !descending)); break;
+		  case 4: std::sort(begin, end, customComparator(&Song::genre, !descending)); break;
+		  case 5: std::sort(begin, end, customComparator(&Song::path, !descending)); break;
+		  case 6: std::sort(begin, end, customComparator(&Song::language, !descending)); break;
+		  case 7: {
+			auto const songToHiscore = [begin, end, this](){
+				auto result = std::map<SongPtr, unsigned>{};
+
+				std::for_each(begin, end, [&result, this](SongPtr const& song) {
+					try {
+						result[song] = m_database.getHiscore(song);
+					}
+					catch(std::exception const&) {
+						result[song] = 0;
+					}
+				});
+
+				return result;
+			}();
+
+			std::sort(begin, end, [&songToHiscore, &descending](SongPtr const& a, SongPtr const& b){
+				auto const scoreA = songToHiscore.find(a)->second;
+				auto const scoreB = songToHiscore.find(b)->second;
+				return scoreA > scoreB ? !descending : descending;
+			});
+		  }
+		  break;
 		  default: throw std::logic_error("Internal error: unknown sort order in Songs::sortChange");
 		}
 	}
 }
+
+std::shared_ptr<Song> Songs::currentPtr() const try {
+	return m_filtered.at(static_cast<size_t>(math_cover.getTarget())); 
+} catch (std::out_of_range const& e) { return nullptr; }
+
+Song& Songs::current() try { 
+	return *m_filtered.at(static_cast<size_t>(math_cover.getTarget()));
+} catch (std::out_of_range const& e) { throw std::runtime_error(std::string("songs/error: out-of-bounds access attempt for Songs: ") + e.what()); }
+
+Song const& Songs::current() const try { 
+	return *m_filtered.at(static_cast<size_t>(math_cover.getTarget()));
+} catch (std::out_of_range const& e) { throw std::runtime_error(std::string("songs/error: out-of-bounds access attempt for Songs: ") + e.what()); }
 
 namespace {
 	void dumpCover(xmlpp::Element* song, Song const& s, size_t num) {
@@ -550,7 +554,9 @@ namespace {
 			std::cerr << "Songlist error handling cover image: " << e.what() << std::endl;
 		}
 	}
-	template <typename SongVector> void dumpXML(SongVector const& svec, std::string const& filename) {
+
+	template<typename SongCollection>
+	void dumpXML(SongCollection const& svec, std::string const& filename) {
 		xmlpp::Document doc;
 		xmlpp::Element* songlist = doc.create_root_node("songlist");
 		songlist->set_attribute("size", std::to_string(svec.size()));
@@ -571,10 +577,9 @@ namespace {
 
 void Songs::dumpSongs_internal() const {
 	if (m_songlist.empty()) return;
-	SongVector svec = [&] { std::shared_lock<std::shared_mutex> l(m_mutex); return m_songs; }();
-	std::sort(svec.begin(), svec.end(), customComparator(&Song::collateByArtist));
+	SongCollection svec = [&] { std::shared_lock<std::shared_mutex> l(m_mutex); return m_songs; }();
+	std::sort(svec.begin(), svec.end(), customComparator(&Song::collateByArtist, true));
 	fs::path coverpath = fs::path(m_songlist) / "covers";
 	fs::create_directories(coverpath);
 	dumpXML(svec, m_songlist + "/songlist.xml");
 }
-

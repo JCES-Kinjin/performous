@@ -26,8 +26,8 @@ namespace input {
 			// Switch modes and update m_mod only when no buttons are pressed
 			// (avoids buttons getting stuck on mode change)
 			if (m_pressed.empty()) {
-				// The mods that we consider modifiers here: only left Ctrl/Cmd and Alt
-				m_mod = sdlEv.key.keysym.mod & (Platform::shortcutModifier(false) | KMOD_LALT);
+				// The mods that we consider modifiers here: only Ctrl/Cmd and Alt
+				m_mod = sdlEv.key.keysym.mod & (Platform::shortcutModifier() | KMOD_LALT);
 				// Enable/disable keyboard instruments based on current config
 				std::string msg;
 				if (g_enableInstruments) {
@@ -51,7 +51,7 @@ namespace input {
 			if (event.button == ButtonId::GENERIC_UNASSIGNED) event.button = navigation(event.hw);
 			if (event.button == ButtonId::GENERIC_UNASSIGNED) return false;
 			// Keep track of pressed buttons
-			if (event.value) m_pressed.insert(to_underlying(event.button.id));
+			if (event.value != 0.0) m_pressed.insert(to_underlying(event.button.id));
 			else m_pressed.erase(to_underlying(event.button.id));
 			return true;
 		}
@@ -61,7 +61,7 @@ namespace input {
 			switch (event.hw) {
 				// Guitar on keyboard
 				case SDL_SCANCODE_BACKSPACE: button = to_underlying(ButtonId::GUITAR_WHAMMY); goto guitar_process;
-				case SDL_SCANCODE_RCTRL: case SDL_SCANCODE_RALT: button = to_underlying(ButtonId::GUITAR_GODMODE); goto guitar_process;
+				case SDL_SCANCODE_BACKSLASH: case SDL_SCANCODE_SLASH: button = to_underlying(ButtonId::GUITAR_GODMODE); goto guitar_process;
 				case SDL_SCANCODE_RSHIFT: button = to_underlying(ButtonId::GUITAR_PICK_UP); goto guitar_process;
 				case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: button = to_underlying(ButtonId::GUITAR_PICK_DOWN); goto guitar_process;
 				case SDL_SCANCODE_F5: case SDL_SCANCODE_5: case SDL_SCANCODE_B: button++; [[fallthrough]];
@@ -129,7 +129,7 @@ namespace input {
 				if (k == SDL_SCANCODE_PAGEDOWN) return ButtonId::GENERIC_MOREDOWN;
 				if (k == SDL_SCANCODE_PAUSE) return ButtonId::GENERIC_PAUSE;
 			}
-			else if (m_mod == Platform::shortcutModifier(false)) {
+			else if (m_mod == Platform::shortcutModifier()) {
 				if (k == SDL_SCANCODE_UP) return ButtonId::GENERIC_VOLUME_UP;
 				if (k == SDL_SCANCODE_DOWN) return ButtonId::GENERIC_VOLUME_DOWN;
 				if (k == SDL_SCANCODE_P) return ButtonId::GENERIC_PAUSE;

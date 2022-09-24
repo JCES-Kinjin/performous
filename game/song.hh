@@ -2,11 +2,12 @@
 
 #include "fs.hh"
 #include "i18n.hh"
+#include "json.hh"
 #include "notes.hh"
 #include "util.hh"
 
-#include <nlohmann/json.hpp>
-
+#include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -45,7 +46,7 @@ public:
 	fs::path filename; ///< name of songfile
 	fs::path midifilename; ///< name of midi file in FoF format
 	struct BPM {
-		BPM (double _begin, double _ts, double bpm) :
+		BPM (double _begin, double _ts, float bpm) :
 		begin (_begin), step (0.25 * 60.0 / bpm), ts (_ts) {}
 		double begin;  // Time in seconds
 		double step;  // Seconds per quarter note
@@ -101,7 +102,7 @@ public:
 	Status status(double time, ScreenSing* song);
 	// Get a selected track, or LEAD_VOCAL if not found or the first one if not found
 	VocalTrack& getVocalTrack(std::string vocalTrack = TrackName::LEAD_VOCAL);
-	VocalTrack& getVocalTrack(size_t idx = 0);
+	VocalTrack& getVocalTrack(unsigned idx = 0);
 	std::vector<std::string> getVocalTrackNames() const;
 	double getDurationSeconds();
 	bool hasDance() const { return !danceTracks.empty(); }
@@ -132,6 +133,8 @@ private:
 	unsigned int m_linenum;
 	bool m_silent;
 };
+
+using SongPtr = std::shared_ptr<Song>;
 
 /// Print a SongParserException in a format suitable for the logging system.
 std::ostream& operator<<(std::ostream& os, SongParserException const& e);

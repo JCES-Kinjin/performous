@@ -6,10 +6,12 @@
 #include "menu.hh"
 #include "opengl_text.hh"
 #include "progressbar.hh"
+#include "scorewindow.hh"
 #include "screen.hh"
 #include "texture.hh"
 #include "theme.hh"
 #include "instrumentgraph.hh"
+#include "instruments.hh"
 
 #include <deque>
 
@@ -26,26 +28,6 @@ class ThemeSing;
 class Video;
 class Webcam;
 
-typedef std::vector<std::unique_ptr<InstrumentGraph>> Instruments;
-
-/// shows score at end of song
-class ScoreWindow {
-  public:
-	/// constructor
-	ScoreWindow(Instruments& instruments, Database& database);
-	/// draws ScoreWindow
-	void draw();
-	bool empty();
-  private:
-	Database& m_database;
-	AnimValue m_pos;
-	Texture m_bg;
-	ProgressBar m_scoreBar;
-	SvgTxtThemeSimple m_score_text;
-	SvgTxtTheme m_score_rank;
-	std::string m_rank;
-};
-
 /// class for actual singing screen
 class ScreenSing: public Screen {
   public:
@@ -60,7 +42,7 @@ class ScreenSing: public Screen {
 	void prepare();
 	void draw();
 
-	size_t selectedVocalTrack() const { return m_selectedVocal; }
+	unsigned selectedVocalTrack() const { return m_selectedVocal; }
 	bool singingDuet() const { return m_singingDuet; }
 	void setupVocals();
 
@@ -80,8 +62,10 @@ class ScreenSing: public Screen {
 	void instrumentLayout(double time);
 	void createPauseMenu();
 	void drawMenu();
-	void prepareVoicesMenu(size_t moveSelectionTo = 0);
+	void prepareVoicesMenu(unsigned moveSelectionTo = 0);
 	bool devCanParticipate(input::DevType const& devType) const;
+	size_t players() const; // Always have at least one player to display lyrics and prevent crashes.
+
 	Audio& m_audio;
 	Database& m_database;
 	Backgrounds& m_backgrounds;
@@ -107,9 +91,8 @@ class ScreenSing: public Screen {
 	std::string m_selectedTrackLocalized;
 	ConfigItem m_vocalTracks[AUDIO_MAX_ANALYZERS];
 	ConfigItem m_duet;
-	size_t players() const { auto& analyzers = m_audio.analyzers(); return (analyzers.empty() ? 1 : analyzers.size()); } // Always have at least one player to display lyrics and prevent crashes.
 	bool m_singingDuet;
-	size_t m_selectedVocal;
+	unsigned m_selectedVocal;
 	bool m_displayAutoPlay = false;
 	bool keyPressed = false;
 };

@@ -5,6 +5,7 @@
 #include "libda/portaudio.hpp"
 #include "screen_songs.hh"
 #include "game.hh"
+#include "analyzer.hh"
 #include "songs.hh"
 #include "util.hh"
 
@@ -16,6 +17,20 @@
 #include <iostream>
 #include <map>
 #include <unordered_map>
+
+int PaHostApiNameToHostApiTypeId (const std::string& name) {
+	if (name == "Auto") return 1337;
+	if (name == "Windows DirectSound") return 1;
+	if (name == "MME") return 2;
+	if (name == "ASIO") return 3;
+	if (name == "Core Audio" || name == "CoreAudio") return 5;
+	if (name == "OSS") return 7; // Not an error, stupid PortAudio.
+	if (name == "ALSA") return 8;
+	if (name == "Windows WDM-KS") return 11;
+	if (name == "JACK Audio Connection Kit") return 12;
+	if (name == "Windows WASAPI") return 13;
+	throw std::runtime_error("Invalid PortAudio HostApiTypeId Specified.");
+}
 
 namespace {
 	/**
@@ -130,7 +145,7 @@ std::unique_ptr<aubio_tempo_t, void(*)(aubio_tempo_t*)> Audio::aubioTempo =
 							"default",
 							Audio::aubio_win_size,
 							Audio::aubio_hop_size,
-							Audio::getSR()),[](aubio_tempo_t* p) {
+							static_cast<uint_t>(Audio::getSR())),[](aubio_tempo_t* p) {
 							if (p != nullptr) {
 								del_aubio_tempo(p);
 								}
@@ -140,40 +155,39 @@ std::unique_ptr<aubio_tempo_t, void(*)(aubio_tempo_t*)> Audio::aubioTempo =
 std::recursive_mutex Audio::aubio_mutex;
 
 bool Music::operator()(float* begin, float* end) {
-	size_t samples = end - begin;
+	std::int64_t samples = end - begin;
 	m_clock.timeSync(durationOf(m_pos), durationOf(samples)); // Keep the clock synced
 	bool eof = true;
-	Buffer mixbuf(samples);
+	Buffer mixbuf(static_cast<size_t>(samples));
 	for (auto& kv: tracks) {
 		Track& t = *kv.second;
 // #if 0 // FIXME: Include this code bit once there is a sane pitch shifting algorithm
-// //			if (it->first == "guitar") std::cout << t.pitchFactor << std::endl;
-// 			if (t.pitchFactor != 0) { // Pitch shift
-// 				Buffer tempbuf(end - begin);
-// 				// Get audio to temp buffer
-// 				if (t.mpeg.audioQueue(tempbuf.data(), tempbuf.data() + tempbuf.size(), m_pos, t.fadeLevel)) eof = false;
-// 				// Do the magic
-// 				PitchShift(tempbuf.begin(), tempbuf.end(), t.pitchFactor);
-// 				// Mix with other tracks
-// 				Buffer::iterator m = mixbuf.begin();
-// 				Buffer::iterator b = tempbuf.begin();
-// 				while (b != tempbuf.end())
-// 					*m++ += (*b++);
-// 			// Otherwise just get the audio and mix it straight away
-// 			} else
+// //            if (it->first == "guitar") std::cout << t.pitchFactor << std::endl;
+//             if (t.pitchFactor != 0) { // Pitch shift
+//                 Buffer tempbuf(end - begin);
+//                 // Get audio to temp buffer
+//                 if (t.mpeg.audioQueue(tempbuf.data(), tempbuf.data() + tempbuf.size(), m_pos, t.fadeLevel)) eof = false;
+//                 // Do the magic
+//                 PitchShift(tempbuf.begin(), tempbuf.end(), t.pitchFactor);
+//                 // Mix with other tracks
+//                 Buffer::iterator m = mixbuf.begin();
+//                 Buffer::iterator b = tempbuf.begin();
+//                 while (b != tempbuf.end())
+//                     *m++ += (*b++);
+//             // Otherwise just get the audio and mix it straight away
+//             } else
 // #endif
-		if (t.audioBuffer.read(mixbuf.data(), mixbuf.size(), m_pos, t.fadeLevel)) eof = false;
-		
+		if (t.audioBuffer.read(mixbuf.data(), static_cast<std::int64_t>(mixbuf.size()), m_pos, static_cast<float>(t.fadeLevel))) eof = false;
 	}
 	m_pos += samples;
-	const float volume = static_cast<float>(m_preview ? config["audio/preview_volume"].i() : config["audio/music_volume"].i()) / 100.0;
+	const float volume = static_cast<float>(m_preview ? config["audio/preview_volume"].ui() : config["audio/music_volume"].ui()) / 100.0f;
 	for (size_t i = 0, iend = mixbuf.size(); i != iend; ++i) {
 		if (i % 2 == 0) {
 			fadeLevel += fadeRate;
-			if (fadeLevel <= 0.0) return false;
-			if (fadeLevel > 1.0) { fadeLevel = 1.0; fadeRate = 0.0; }
+			if (fadeLevel <= 0.0f) return false;
+			if (fadeLevel > 1.0f) { fadeLevel = 1.0f; fadeRate = 0.0f; }
 		}
-		begin[i] += mixbuf[i] * fadeLevel * volume;
+		begin[i] += static_cast<float>(mixbuf[i] * fadeLevel * volume);
 	}
 	// suppress center channel vocals
 	if(suppressCenterChannel && !m_preview) {
@@ -206,6 +220,7 @@ bool Music::prepare() {
 				std::lock_guard<std::recursive_mutex> l(Audio::aubio_mutex);
 				Game* gm = Game::getSingletonPtr();
 				ScreenSongs* sSongs = static_cast<ScreenSongs *>(gm->getScreen("Songs"));
+				if (!sSongs->getSongs().currentPtr()) return false;
 				double pstart = sSongs->getSongs().currentPtr()->preview_start;
 				pstart = (std::isnan(pstart) ? 0.0 : pstart);
 				double first_period = 0.0, first_beat = 0.0;
@@ -234,7 +249,7 @@ bool Music::prepare() {
 						beats.insert(beats.begin(),extra_beats.rbegin(),extra_beats.rend());
 					}
 				}
-			}	
+			}
 		continue;  // Buffering done
 		}
 		ready = false;  // Need to wait for buffering
@@ -257,7 +272,7 @@ void Music::trackPitchBend(std::string const& name, double pitchFactor) {
 
 struct Sample {
   private:
-	double m_pos;
+	std::int64_t m_pos;
 	AudioBuffer audioBuffer;
 	bool eof;
   public:
@@ -267,12 +282,17 @@ struct Sample {
 			// No more data to play in this sample
 			return;
 		}
-		std::vector<float> mixbuf(end - begin);
-		if(!audioBuffer.read(mixbuf.data(), mixbuf.size(), m_pos, 1.0)) {
+		if (end <= begin) {
+			eof = true;
+			return;
+		}
+		std::int64_t size = end - begin;
+		std::vector<float> mixbuf(static_cast<size_t>(size));
+		if(!audioBuffer.read(mixbuf.data(), size, m_pos, 1.0)) {
 			eof = true;
 		}
-		const auto failVolume = static_cast<float>(config["audio/fail_volume"].i()) / 100.0;
-		for (size_t i = 0, iend = end - begin; i != iend; ++i) {
+		const auto failVolume = static_cast<float>(config["audio/fail_volume"].ui()) / 100.0f;
+		for (size_t i = 0, iend = mixbuf.size(); i != iend; ++i) {
 			begin[i] += mixbuf[i] * failVolume;
 		}
 		m_pos += end - begin;
@@ -291,16 +311,17 @@ struct Synth {
 	Synth(Notes const& notes, unsigned int sr) : m_notes(notes), srate(sr) {}
 	void operator()(float* begin, float* end, double position) {
 		static double phase = 0.0;
-		for (float *i = begin; i < end; ++i) *i *= 0.3; // Decrease music volume
-
-		std::vector<float> mixbuf(end - begin);
+		for (float *i = begin; i < end; ++i) *i *= 0.3f; // Decrease music volume
+		std::int64_t size = end - begin;
+		if (end <= begin) return;
+		std::vector<float> mixbuf(static_cast<size_t>(size));
 		Notes::const_iterator it = m_notes.begin();
 
 		while (it != m_notes.end() && it->end < position) ++it;
 		if (it == m_notes.end() || it->type == Note::Type::SLEEP || it->begin > position) { phase = 0.0; return; }
-		int note = it->note % 12;
-		double d = (note + 1) / 13.0;
-		double freq = MusicalScale().setNote(note + 4 * 12).getFreq();
+		float note = std::fmod(it->note, 12.0f);
+		double d = (note + 1.0) / 13.0;
+		double freq = MusicalScale().setNote(note + 4.0 * 12.0).getFreq();
 		double value = 0.0;
 		// Synthesize tones
 		for (size_t i = 0, iend = mixbuf.size(); i != iend; ++i) {
@@ -308,7 +329,7 @@ struct Synth {
 				value = d * 0.2 * std::sin(phase) + 0.2 * std::sin(2 * phase) + (1.0 - d) * 0.2 * std::sin(4 * phase);
 				phase += TAU * freq / srate;
 			}
-			begin[i] += value;
+			begin[i] += static_cast<float>(value);
 		}
 	}
 };
@@ -407,12 +428,12 @@ struct Output {
 };
 
 
-Device::Device(unsigned int in, unsigned int out, double rate, unsigned int dev):
+Device::Device(int in, int out, double rate, PaDeviceIndex dev):
   in(in), out(out), rate(rate), dev(dev),
   stream(*this,
   portaudio::Params().channelCount(in).device(dev).suggestedLatency(config["audio/latency"].f()),
   portaudio::Params().channelCount(out).device(dev).suggestedLatency(config["audio/latency"].f()), rate),
-  mics(in, nullptr),
+  mics(static_cast<size_t>(in), nullptr),
   outptr()
 {}
 
@@ -425,7 +446,16 @@ void Device::stop() {
 	PORTAUDIO_CHECKED(Pa_AbortStream, (stream));
 }
 
-int Device::operator()(float const* inbuf, float* outbuf, unsigned long frames) try {
+bool Device::isChannel(std::string const& name) const {
+	if (name == "OUT")
+		return isOutput();
+	for (auto const& m: mics)
+		if (m && m->getId() == name)
+			return true;
+	return false;
+}
+
+int Device::operator()(float const* inbuf, float* outbuf, std::ptrdiff_t frames) try {
 	for (std::size_t i = 0; i < mics.size(); ++i) {
 		if (!mics[i]) continue;  // No analyzer? -> Channel not used
 		da::sample_const_iterator it = da::sample_const_iterator(inbuf + i, in);
@@ -451,14 +481,14 @@ struct Audio::Impl {
 		for (ConfigItem::StringList::const_iterator it = devs.begin(), end = devs.end(); it != end; ++it) {
 			try {
 				struct Params {
-					unsigned out, in;
+					int out, in;
 					unsigned int rate;
 					std::string dev;
 					std::vector<std::string> mics;
 				} params = Params();
 				params.out = 0;
 				params.in = 0;
-				params.rate = 48000;
+				params.rate = 48000u;
 				// Break into tokens:
 				for (auto& kv: parseKeyValuePairs(*it)) {
 					// Handle keys
@@ -477,10 +507,10 @@ struct Audio::Impl {
 					else throw std::runtime_error("Unknown device parameter " + key);
 					if (!iss.eof()) throw std::runtime_error("Syntax error parsing device parameter " + key);
 				}
-				if (params.mics.size() < params.in) { params.mics.resize(params.in); }
+				if (params.mics.size() < static_cast<size_t>(params.in)) { params.mics.resize(static_cast<size_t>(params.in)); }
 				portaudio::AudioDevices ad(PaHostApiTypeId(PaHostApiNameToHostApiTypeId(selectedBackend)));
 					bool wantOutput = (params.in == 0) ? true : false;
-					unsigned num;
+					int num;
 					std::string msg = "audio/info: Device string empty; will look for a device with at least ";
 					if (wantOutput) {
 						msg += std::to_string(params.out) + " output channels.";
@@ -496,14 +526,14 @@ struct Audio::Impl {
 					else { std::clog << msg << std::endl; }
 					portaudio::DeviceInfo const& info = ad.find(params.dev, wantOutput, num);
 					std::clog << "audio/info: Found: " << info.name << ", in: " << info.in << ", out: " << info.out << std::endl;
-				if (info.in < params.mics.size()) throw std::runtime_error("Device doesn't have enough input channels");
+				if (info.in < static_cast<int>(params.mics.size())) throw std::runtime_error("Device doesn't have enough input channels");
 				if (info.out < params.out) throw std::runtime_error("Device doesn't have enough output channels");
 				// Match found if we got here, construct a device
 				devices.emplace_back(params.in, params.out, params.rate, info.index);
 				Device& d = devices.back();
 				// Assign mics for all channels of the device
 				int assigned_mics = 0;
-				for (unsigned int j = 0; j < params.in; ++j) {
+				for (unsigned j = 0; j < static_cast<unsigned>(params.in); ++j) {
 					if (analyzers.size() >= AUDIO_MAX_ANALYZERS) break; // Too many mics
 					std::string const& m = params.mics[j];
 					if (m.empty()) continue; // Input channel not used
@@ -547,19 +577,25 @@ struct Audio::Impl {
 portaudio::Init Audio::init;
 
 Audio::Audio() {
-	aubio_tempo_set_silence(Audio::aubioTempo.get(), -50.0);
-	aubio_tempo_set_threshold(Audio::aubioTempo.get(), 0.4);
-        populateBackends(portaudio::AudioBackends().getBackends());
-        self = std::make_unique<Impl>();
+	aubio_tempo_set_silence(Audio::aubioTempo.get(), -50.0f);
+	aubio_tempo_set_threshold(Audio::aubioTempo.get(), 0.4f);
+	populateBackends(portaudio::AudioBackends().getBackends());
+	self = std::make_unique<Impl>();
 }
-Audio::~Audio() { close(); }
+
+Audio::~Audio() {
+	close();
+}
 
 ConfigItem& Audio::backendConfig() {
 	static ConfigItem& backend = config["audio/backend"];
 	return backend;
 }
 
-void Audio::restart() { close(); self = std::make_unique<Impl>(); }
+void Audio::restart() {
+	close();
+	self = std::make_unique<Impl>();
+}
 
 void Audio::close() {
 	self.reset();
@@ -577,7 +613,7 @@ bool Audio::hasPlayback() const {
 
 void Audio::loadSample(std::string const& streamId, fs::path const& filename) {
 	std::lock_guard<std::mutex> l(self->output.samples_mutex);
-	self->output.samples.emplace(streamId, std::unique_ptr<Sample>(new Sample(filename, getSR())));
+	self->output.samples.emplace(streamId, std::unique_ptr<Sample>(new Sample(filename, static_cast<unsigned>(getSR()))));
 }
 
 void Audio::playSample(std::string const& streamId) {
@@ -700,5 +736,10 @@ void Audio::toggleCenterChannelSuppressor() {
 	}
 }
 
-std::deque<Analyzer>& Audio::analyzers() { return self->analyzers; }
-std::deque<Device>& Audio::devices() { return self->devices; }
+std::deque<Analyzer>& Audio::analyzers() {
+	return self->analyzers;
+}
+
+std::deque<Device>& Audio::devices() {
+	return self->devices;
+}

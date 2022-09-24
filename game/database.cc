@@ -24,7 +24,7 @@ void Database::load() {
 		m_songs.load(nodeRoot->find("/performous/songs/song"));
 		m_hiscores.load(nodeRoot->find("/performous/hiscores/hiscore"));
 		std::clog << "database/info: Loaded " << m_players.count() << " players, " << m_songs.size() << " songs and " << m_hiscores.size() << " hiscores from " << m_filename.string() << std::endl;
-	} catch (std::exception& e) {
+	} catch (std::exception const& e) {
 		std::clog << "database/error: Error loading " + m_filename.string() + ": " + e.what() << std::endl;
 	}
 }
@@ -49,7 +49,7 @@ void Database::save() {
 	}
 }
 
-void Database::addPlayer(std::string const& name, std::string const& picture, int id) {
+void Database::addPlayer(std::string const& name, std::string const& picture, std::optional<PlayerId> id) {
 	m_players.addPlayer(name, picture, id);
 }
 
@@ -58,62 +58,98 @@ void Database::addSong(std::shared_ptr<Song> s) {
 }
 
 void Database::addHiscore(std::shared_ptr<Song> s) {
-	int playerid = m_players.lookup(m_players.current().name);
-	int score = scores.front().score;
+	auto maybe_playerid = m_players.lookup(m_players.current().name);
+	if (!maybe_playerid.has_value()) {
+		std::cerr << "database/error: cannot find player ID for player '" + m_players.current().name << "'\n";
+		return;
+	}
+	auto playerid = maybe_playerid.value();
+	unsigned score = scores.front().score;
 	std::string track = scores.front().track;
-	int songid = m_songs.lookup(s);
-	unsigned level = config["game/difficulty"].i();
-	m_hiscores.addHiscore(score, playerid, songid, level, track);
-	std::clog << "database/info: Added new hiscore " << score << " points on track " << track << " of songid " << songid << " level "<< level<< std::endl;
+	const auto songid = m_songs.lookup(s);
+	if(!songid.has_value()) {
+		std::clog << "database/error: Invalid song ID for song: " + s->artist + " - " + s->title << std::endl;
+		return;
+	}
+	unsigned short level = config["game/difficulty"].ui();
+	m_hiscores.addHiscore(score, playerid, songid.value(), level, track);
+	std::clog << "database/info: Added new hiscore " << score << " points on track " << track << " of songid " << std::to_string(songid.value()) << " level "<< level<< std::endl;
 }
 
 bool Database::reachedHiscore(std::shared_ptr<Song> s) const {
-	int score = scores.front().score;
-	std::string track = scores.front().track;
-	int songid = m_songs.lookup(s);
-	unsigned level = config["game/difficulty"].i();
-	return m_hiscores.reachedHiscore(score, songid, level, track);
+	unsigned score = scores.front().score;
+	const auto track = scores.front().track;
+	const auto songid = m_songs.lookup(s);
+	if (!songid) {
+		std::clog << "database/error: Invalid song ID for song: " + s->artist + " - " + s->title << std::endl;
+		return false;
+	}
+	unsigned short level = config["game/difficulty"].ui();
+	return m_hiscores.reachedHiscore(score, songid.value(), level, track);
 }
 
 void Database::queryOverallHiscore(std::ostream & os, std::string const& track) const {
-	std::vector<HiscoreItem> hi = m_hiscores.queryHiscore (10, -1, -1, track);
-	for (size_t i=0; i<hi.size(); ++i) {
+	std::vector<HiscoreItem> hi = m_hiscores.queryHiscore (std::nullopt, std::nullopt, track, 10);
+	for (size_t i=0; i < hi.size(); ++i) {
 		os << i+1 << ".\t"
-		   << m_players.lookup(hi[i].playerid) << "\t"
-		   << m_songs.lookup(hi[i].songid) << "\t"
+		   << m_players.lookup(hi[i].playerid).value_or("Unknown player Id " + std::to_string(hi[i].playerid)) << "\t"
+		   << m_songs.lookup(hi[i].songid).value() << "\t"
 		// << hi[i].track << "\t"
 		   << hi[i].score << "\n";
 	}
 }
 
 void Database::queryPerSongHiscore(std::ostream & os, std::shared_ptr<Song> s, std::string const& track) const {
-	int songid = m_songs.lookup(s);
-	if (songid == -1) return;  // Song not included in database (yet)
+	const auto maybe_songid = m_songs.lookup(s);
+	if (!maybe_songid) return; // song not yet in database.
+		const auto songid = maybe_songid.value();
 	// Reorder hiscores by track / score
 	std::map<std::string, std::multiset<HiscoreItem>> scoresByTrack;
-	for (HiscoreItem const& hi: m_hiscores.queryHiscore(-1, -1, songid, track)) scoresByTrack[hi.track].insert(hi);
+	for (HiscoreItem const& hi: m_hiscores.queryHiscore(std::nullopt, songid, track, std::nullopt)) scoresByTrack[hi.track].insert(hi);
 	for (auto const& hiv: scoresByTrack) {
 		os << hiv.first << ":\n";
 		for (auto const& hi: hiv.second) {
-			os << "\t" << hi.score << "\t" << m_players.lookup(hi.playerid) << "\n";
+			os << "\t" << hi.score << "\t" << m_players.lookup(hi.playerid).value_or("Unknown player Id " + std::to_string(hi.playerid)) << "\n";
 		}
 		os << "\n";
 	}
 }
 
 void Database::queryPerPlayerHiscore(std::ostream & os, std::string const& track) const {
-	int playerid = m_players.lookup(m_players.current().name);
-	std::vector<HiscoreItem> hi = m_hiscores.queryHiscore(3, playerid, -1, track);
-	for (size_t i=0; i<hi.size(); ++i) {
+	std::optional<PlayerId> playerid = m_players.lookup(m_players.current().name);
+	std::vector<HiscoreItem> hi = m_hiscores.queryHiscore(playerid, std::nullopt, track, 3);
+
+	for (size_t i=0; i < hi.size(); ++i) {
 		os << i+1 << ".\t"
-		   << m_songs.lookup(hi[i].songid) << "\t"
+		   << m_songs.lookup(hi[i].songid).value() << "\t"
 		   << hi[i].score << "\t"
 		   << "(" << hi[i].track << ")\n";
 	}
 }
 
-bool Database::hasHiscore(Song& s) const {
-	int songid = m_songs.lookup(s);
-	return m_hiscores.hasHiscore(songid);
+bool Database::hasHiscore(Song const& s) const
+try {
+	return m_hiscores.hasHiscore(m_songs.lookup(s).value());
+} catch (const std::exception&) {
+	return false;
+}
+
+unsigned Database::getHiscore(Song const& s) const try {
+	const auto songid = m_songs.lookup(s);
+	return m_hiscores.getHiscore(songid.value());
+} catch (const std::exception&) {
+	return 0;
+}
+
+unsigned Database::getHiscore(SongPtr const& s) const {
+	try {
+		auto const songid = m_songs.getSongId(s);
+
+		return m_hiscores.getHiscore(songid);
+	} catch (const std::exception& e) {
+		std::clog << "database/error: Invalid song ID for song: " + s->artist + " - " + s->title << std::endl;
+		std::clog << "database/error: message: " << e.what() << std::endl;
+		throw;
+	}
 }
 

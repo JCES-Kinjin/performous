@@ -1,6 +1,7 @@
 #include "engine.hh"
 
 #include "audio.hh"
+#include "analyzer.hh"
 #include "song.hh"
 #include "database.hh"
 #include "configuration.hh"
@@ -20,7 +21,7 @@ Engine::Engine(Audio& audio, VocalTrackPtrs vocals, Database& database):
 	unsigned i = 0;
 	for (Analyzer& a: analyzers) {
 		// Calculate the space required for pitch frames
-		size_t frames = vocals[i]->endTime / Engine::TIMESTEP;
+		size_t frames = static_cast<size_t>(vocals[i]->endTime / Engine::TIMESTEP);
 		m_database.cur.push_back(Player(*vocals[i], a, frames));
 		++i;
 	}

@@ -29,6 +29,7 @@
 #include <fmt/format.h>
 #include <boost/program_options.hpp>
 #include <cstdlib>
+#include <cstdint>
 #include <csignal>
 #include <string>
 #include <thread>
@@ -50,8 +51,8 @@ static void checkEvents(Game& gm, Time eventTime) {
 		if (type == SDL_WINDOWEVENT) window.event(event.window.event, event.window.data1, event.window.data2);
 		if (type == SDL_QUIT) gm.finished();
 		if (type == SDL_KEYDOWN) {
-			auto key  = event.key.keysym.scancode;
-			auto mod = event.key.keysym.mod;
+			SDL_Scancode key  = event.key.keysym.scancode;
+			std::uint16_t mod = event.key.keysym.mod;
 			bool altEnter = (key == SDL_SCANCODE_RETURN || key == SDL_SCANCODE_KP_ENTER) && mod & KMOD_ALT;  // Alt+Enter
 			bool modF = key == SDL_SCANCODE_F && mod & KMOD_CTRL && mod & KMOD_GUI;  // MacOS Ctrl+Cmd+F
 			if (altEnter || modF || key == SDL_SCANCODE_F11) {
@@ -99,7 +100,7 @@ void mainLoop(std::string const& songlist) {
 	std::clog << "core/notice: Starting the audio subsystem (errors printed on console may be ignored)." << std::endl;
 	Audio audio;
 	std::clog << "core/info: Loading assets." << std::endl;
-	TranslationEngine localization(PACKAGE);
+	TranslationEngine localization;
 	TextureLoader m_loader;
 	Backgrounds backgrounds;
 	Database database(getConfigDir() / "database.xml");
@@ -108,11 +109,11 @@ void mainLoop(std::string const& songlist) {
 
 	Window window{};
 
-	Game gm(window, audio, localization);
+	Game gm(window, audio);
 	WebServer server(songs);
 
 	// Load audio samples
-	gm.loading(_("Loading audio samples..."), 0.5);
+	gm.loading(_("Loading audio samples..."), 0.5f);
 	audio.loadSample("drum bass", findFile("sounds/drum_bass.ogg"));
 	audio.loadSample("drum snare", findFile("sounds/drum_snare.ogg"));
 	audio.loadSample("drum hi-hat", findFile("sounds/drum_hi-hat.ogg"));
@@ -127,7 +128,7 @@ void mainLoop(std::string const& songlist) {
 	audio.loadSample("guitar fail6", findFile("sounds/guitar_fail6.ogg"));
 	audio.loadSample("notice.ogg",findFile("notice.ogg"));
 	// Load screens
-	gm.loading(_("Creating screens..."), 0.7);
+	gm.loading(_("Creating screens..."), 0.7f);
 	gm.addScreen(std::make_unique<ScreenIntro>("Intro", audio));
 	gm.addScreen(std::make_unique<ScreenSongs>("Songs", audio, songs, database));
 	gm.addScreen(std::make_unique<ScreenSing>("Sing", audio, database, backgrounds));
@@ -137,9 +138,9 @@ void mainLoop(std::string const& songlist) {
 	gm.addScreen(std::make_unique<ScreenPlayers>("Players", audio, database));
 	gm.addScreen(std::make_unique<ScreenPlaylist>("Playlist", audio, songs, backgrounds));
 	gm.activateScreen("Intro");
-	gm.loading(_("Entering main menu..."), 0.8);
+	gm.loading(_("Entering main menu..."), 0.8f);
 	gm.updateScreen();  // exit/enter, any exception is fatal error
-	gm.loading(_("Loading complete!"), 1.0);
+	gm.loading(_("Loading complete!"), 1.0f);
 	// Main loop
 	auto time = Clock::now();
 	unsigned frames = 0;
@@ -206,9 +207,11 @@ void mainLoop(std::string const& songlist) {
 void jstestLoop() {
 	try {
 		config["graphic/fullscreen"].b() = false;
-		config["graphic/window_width"].i() = 640;
-		config["graphic/window_height"].i() = 360;
+		config["graphic/window_width"].ui() = 640;
+		config["graphic/window_height"].ui() = 360;
 		Window window;
+		input::Controllers controllers;
+		controllers.enableEvents(true);
 		// Main loop
 		int oldjoy = -1, oldaxis = -1, oldvalue = -1;
 		while (true) {
@@ -259,7 +262,7 @@ static void fatalError(const std::string &msg) {
 }
 
 int main(int argc, char** argv) try {
-	std::srand(std::time(nullptr));
+	std::srand(static_cast<unsigned>(std::time(nullptr)));
 	// Parse commandline options
 	std::vector<std::string> devices;
 	std::vector<std::string> songdirs;

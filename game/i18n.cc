@@ -1,9 +1,18 @@
 #include "i18n.hh"
 
+#include "config.hh"
 #include "configuration.hh"
 #include "fs.hh"
+#include "unicode.hh"
 
-TranslationEngine::TranslationEngine(const char *package) : m_package(package) {
+#include <unicode/locid.h>
+
+std::pair<std::string, std::string> TranslationEngine::m_currentLanguage{"en_US.UTF-8", "English" };
+std::string TranslationEngine::m_package = PACKAGE;
+boost::locale::generator TranslationEngine::m_gen{};
+std::map<std::string, std::string> TranslationEngine::m_languages{};
+
+TranslationEngine::TranslationEngine() {
 	initializeAllLanguages();
 	/* set all languages in configuration.
 	 * They are kept untranslated internally which prevents having issues
@@ -38,13 +47,30 @@ void TranslationEngine::setLanguage(const std::string& language, bool fromSettin
 	std::clog << "locale/notice: Setting language to: '" << language << "'" << std::endl;
 
 	if (fromSettings) {
-		m_currentLanguage = { getLanguageByHumanReadableName(language) , language };
+		TranslationEngine::m_currentLanguage = { getLanguageByHumanReadableName(language) , language };
 	}
 	else {
-		m_currentLanguage = { language , getLanguageByKey(language) };
+		TranslationEngine::m_currentLanguage = { language , getLanguageByKey(language) };
 	}
-
+	auto searchLocale = icu::Locale::createCanonical("en_US.UTF-8");
+	auto sortLocale = icu::Locale::createCanonical("en_US.UTF-8");
+	icu::ErrorCode error;
 	try {
+		searchLocale = icu::Locale::createCanonical(m_currentLanguage.first.c_str());
+		sortLocale = icu::Locale::createCanonical(m_currentLanguage.first.c_str());
+#if U_ICU_VERSION_MAJOR_NUM >= 63
+		sortLocale.setUnicodeKeywordValue("co","standard", error);
+#else
+		sortLocale.setKeywordValue("collation","standard", error);
+#endif
+		if (error.isFailure()) throw std::runtime_error("Error " + std::to_string(error.get()) + " creating sorting locale: " + error.errorName());
+		error.reset();
+#if U_ICU_VERSION_MAJOR_NUM >= 63
+		searchLocale.setUnicodeKeywordValue("co","search", error);
+#else
+		sortLocale.setKeywordValue("collation","search", error);
+#endif
+		if (error.isFailure()) throw std::runtime_error("Error " + std::to_string(error.get()) + " creating search locale: " + error.errorName());
 		std::locale::global(m_gen(m_currentLanguage.first));
 		std::cout << "locale/notice: Current language is: '" << m_currentLanguage.second << "'" << std::endl;
 	}
@@ -52,6 +78,23 @@ void TranslationEngine::setLanguage(const std::string& language, bool fromSettin
 		std::clog << "locale/warning: Unable to detect locale, will try to fallback to en_US.UTF-8. Exception: " << e.what() << std::endl;
 		std::locale::global(m_gen("en_US.UTF-8"));
 	}
+
+	icu::RuleBasedCollator* search;
+	icu::RuleBasedCollator* sort;
+
+	error.reset();	
+	search = dynamic_cast<icu::RuleBasedCollator*>(icu::RuleBasedCollator::createInstance(searchLocale, error));
+	if (!search || error.isFailure()) throw std::runtime_error("Unable to create search collator. error: " + std::to_string(error.get()) + ": " + error.errorName());
+
+	error.reset();
+	sort = dynamic_cast<icu::RuleBasedCollator*>(icu::RuleBasedCollator::createInstance(sortLocale, error));
+	if (!sort || error.isFailure()) throw std::runtime_error("Unable to create search collator. error: " + 
+std::to_string(error.get()) + ": " + error.errorName());
+
+	UnicodeUtil::m_searchCollator.reset(search);
+	UnicodeUtil::m_sortCollator.reset(sort);
+	UnicodeUtil::m_searchCollator->setStrength(icu::Collator::PRIMARY);
+	UnicodeUtil::m_sortCollator->setStrength(icu::Collator::SECONDARY);
 }
 
 std::string TranslationEngine::getLanguageByHumanReadableName(const std::string& language) {
@@ -82,19 +125,24 @@ std::string TranslationEngine::getLanguageByKey(const std::string& languageKey) 
 	return allLanguages.at(languageKey);
 }
 
-const std::pair<std::string, std::string>& TranslationEngine::getCurrentLanguage() const { 
-	return m_currentLanguage; 
+std::pair<std::string, std::string> const& TranslationEngine::getCurrentLanguage() { 
+	return TranslationEngine::m_currentLanguage; 
+}
+
+std::string TranslationEngine::getCurrentLanguageCode() {
+	std::string lang(getCurrentLanguage().first);
+	return lang.substr(0, lang.find('.'));
 }
 
 std::map<std::string, std::string> TranslationEngine::GetAllLanguages(bool refresh) {
 	if (refresh) {
-		m_languages.clear();
+		TranslationEngine::m_languages.clear();
 	}
-	if (m_languages.size() != 0) return m_languages;
+	if (TranslationEngine::m_languages.size() != 0) return TranslationEngine::m_languages;
 
 	// Internally, all strings are kept in English, but they are eventually
 	// displayed as menu entries thus they need translation
-	m_languages = {
+	TranslationEngine::m_languages = {
 		{ "None", translate_noop("Auto") },
 		{ "ast_ES.UTF-8", translate_noop("Asturian") },
 		{ "da_DK.UTF-8", translate_noop("Danish") },
@@ -118,7 +166,7 @@ std::map<std::string, std::string> TranslationEngine::GetAllLanguages(bool refre
 	return m_languages;
 }
 
-std::vector<std::string> TranslationEngine::getLocalePaths() const {
+std::vector<std::string> TranslationEngine::getLocalePaths() {
 	auto paths = std::vector<std::string>{ ".", "./lang" };
         
 	auto const* root = getenv("PERFORMOUS_ROOT");

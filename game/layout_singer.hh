@@ -17,7 +17,7 @@ class LyricRow {
 	/// iterator
 	typedef Notes::const_iterator Iterator;
 	/// constructor
-	LyricRow(Iterator& it, Iterator const& eof): extraspacing(0.0, 2.0), fade(0.0, 0.6) {
+	LyricRow(Iterator& it, Iterator const& eof): extraspacing(0.0f, 2.0f), fade(0.0, 0.6) {
 		fade.setTarget(1.0);
 		m_begin = it;
 		while (it != eof && it->type != Note::Type::SLEEP) ++it;
@@ -36,15 +36,15 @@ class LyricRow {
 		std::vector<TZoomText> sentence;
 		for (Iterator it = m_begin; it != m_end; ++it) {
 			sentence.push_back(TZoomText(it->syllable));
-			if(!config["game/Textstyle"].i()) {
+			if(!config["game/Textstyle"].ui()) {
 			bool current = (time >= it->begin && time < it->end);
-			sentence.back().factor = current ? 1.1 - 0.1 * (time - it->begin) / (it->end - it->begin) : 1.0; // Zoom-in and out while it's the current syllable.
+			sentence.back().factor = static_cast<float>(current ? 1.1 - 0.1 * (time - it->begin) / (it->end - it->begin) : 1.0); // Zoom-in and out while it's the current syllable.
 			} else {
 			bool current = time >=it->begin;
-			sentence.back().factor = current ? std::min(1.0 + (0.15 * (time - it->begin) / (it->end - it->begin)), 1.1) : 1.0; // Zoom-in and out syllable proportionally to their length.
+			sentence.back().factor = static_cast<float>(current ? std::min(1.0 + (0.15 * (time - it->begin) / (it->end - it->begin)), 1.1) : 1.0); // Zoom-in and out syllable proportionally to their length.
 			}
 		}
-		ColorTrans c(Color::alpha(fade.get()));
+		ColorTrans c(Color::alpha(static_cast<float>(fade.get())));
 		txt.dimensions = dim;
 		txt.draw(sentence, true);
 	}

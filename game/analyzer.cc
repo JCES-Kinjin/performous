@@ -1,4 +1,4 @@
-#include "pitch.hh"
+#include "analyzer.hh"
 
 #include "util.hh"
 #include "libda/fft.hpp"
@@ -11,27 +11,7 @@
 static const double FFT_MINFREQ = 45.0;
 static const double FFT_MAXFREQ = 5000.0;
 
-Tone::Tone():
-  freq(0.0),
-  db(-getInf()),
-  stabledb(-getInf()),
-  age()
-{
-	for (auto& h: harmonics) h = -getInf();
-}
-
-void Tone::print() const {
-	if (age < Tone::MINAGE) return;
-	std::cout << std::fixed << std::setprecision(1) << freq << " Hz, age " << age << ", " << db << " dB:";
-	for (std::size_t i = 0; i < 8; ++i) std::cout << " " << harmonics[i];
-	std::cout << std::endl;
-}
-
-bool Tone::operator==(double f) const {
-	return std::abs(freq / f - 1.0) < 0.05;
-}
-
-Analyzer::Analyzer(double rate, std::string id, std::size_t step):
+Analyzer::Analyzer(double rate, std::string id, unsigned step):
   m_step(step),
   m_resampleFactor(1.0),
   m_resamplePos(),
@@ -45,30 +25,30 @@ Analyzer::Analyzer(double rate, std::string id, std::size_t step):
 	if (m_step > FFT_N) throw std::logic_error("Analyzer step is larger that FFT_N (ideally it should be less than a fourth of FFT_N).");
 	// Hamming window
 	for (size_t i=0; i < FFT_N; i++) {
-		m_window[i] = 0.53836 - 0.46164 * std::cos(TAU * i / (FFT_N - 1));
+		m_window[i] = static_cast<float>(0.53836 - 0.46164 * std::cos(TAU * static_cast<double>(i) / (FFT_N - 1)));
 	}
 }
 
 void Analyzer::output(float* begin, float* end, double rate) {
 	constexpr unsigned a = 2;
-	const unsigned size = m_passthrough.size();
-	const unsigned out = (end - begin) / 2 /* stereo */;
+	auto const size = m_passthrough.size();
+	auto const out = static_cast<unsigned>((end - begin) / 2) /* stereo */;
 	if (out == 0) return;
-	const unsigned in = m_resampleFactor * (m_rate / rate) * out + 2 * a /* lanczos kernel */ + 5 /* safety margin for rounding errors */;
+	const unsigned in = static_cast<unsigned>(m_resampleFactor * (m_rate / rate) * out + 2 * a) /* lanczos kernel */ + 5 /* safety margin for rounding errors */;
 	std::vector<float> pcm(m_passthrough.capacity);
 	m_passthrough.read(pcm.data(), pcm.data() + in + 4);
 	for (unsigned i = 0; i < out; ++i) {
 		double s = 0.0;
-		unsigned k = m_resamplePos;
+		unsigned k = static_cast<unsigned>(m_resamplePos);
 		double x = m_resamplePos - k;
 		// Lanczos sampling of input at m_resamplePos
 		for (unsigned j = 0; j <= 2 * a; ++j) s += pcm[k + j] * da::lanc<a>(x - j + a);
 		s *= 5.0;
-		begin[i * 2] += s;
-		begin[i * 2 + 1] += s;
+		begin[i * 2] = static_cast<float>(begin[i * 2] + s);
+		begin[i * 2 + 1] = static_cast<float>(begin[i * 2 + 1] + s);
 		m_resamplePos += m_resampleFactor;
 	}
-	unsigned num = m_resamplePos;
+	unsigned num = static_cast<unsigned>(m_resamplePos);
 	m_resamplePos -= num;
 	if (size > 3000) {
 		// Reset
@@ -136,9 +116,9 @@ void Analyzer::calcTones() {
 		double magnitude = std::abs(m_fft[k]);
 		double phase = std::arg(m_fft[k]) / TAU;
 		double delta = phase - m_fftLastPhase[k];
-		m_fftLastPhase[k] = phase;
+		m_fftLastPhase[k] = static_cast<float>(phase);
 		// Use phase difference over a step to calculate what the frequency must be
-		double freq = stepRate * (std::round(k * phaseStep - delta) + delta);
+		double freq = stepRate * (std::round(static_cast<double>(k) * phaseStep - delta) + delta);
 		if (freq > 1.0 && magnitude > minMagnitude) {
 			peaks[k].freq = freq;
 			peaks[k].db = 20.0 * log10(normCoeff * magnitude);
@@ -160,12 +140,12 @@ void Analyzer::calcTones() {
 		std::size_t bestDiv = 1;
 		int bestScore = 0;
 		for (std::size_t div = 2; div <= Tone::MAXHARM && k / div > 1; ++div) {
-			double freq = peaks[k].freq / div; // Fundamental
+			double freq = peaks[k].freq / static_cast<double>(div); // Fundamental
 			int score = 0;
 			for (std::size_t n = 1; n < div && n < 8; ++n) {
 				Peak& p = match(peaks, k * n / div);
 				--score;
-				if (p.db < -80.0 || std::abs(p.freq / n / freq - 1.0) > .03) continue;
+				if (p.db < -80.0 || std::abs(p.freq / static_cast<double>(n) / freq - 1.0) > .03) continue;
 				if (n == 1) score += 4; // Extra for fundamental
 				score += 2;
 			}
@@ -177,23 +157,23 @@ void Analyzer::calcTones() {
 		// Construct a Tone by combining the fundamental frequency (freq) and all harmonics
 		Tone t;
 		std::size_t count = 0;
-		double freq = peaks[k].freq / bestDiv;
+		double freq = peaks[k].freq / static_cast<double>(bestDiv);
 		t.db = peaks[k].db;
 		for (std::size_t n = 1; n <= bestDiv; ++n) {
 			// Find the peak for n'th harmonic
 			Peak& p = match(peaks, k * n / bestDiv);
-			if (std::abs(p.freq / n / freq - 1.0) > .03) continue; // Does it match the fundamental freq?
+			if (std::abs(p.freq / static_cast<double>(n) / freq - 1.0) > .03) continue; // Does it match the fundamental freq?
 			if (p.db > t.db - 10.0) {
 				t.db = std::max(t.db, p.db);
 				++count;
-				t.freq += p.freq / n;
+				t.freq += p.freq / static_cast<double>(n);
 			}
 			t.harmonics[n - 1] = p.db;
 			p.clear();
 		}
-		t.freq /= count;
+		t.freq /= static_cast<double>(count);
 		// If the tone seems strong enough, add it (-3 dB compensation for each harmonic)
-		if (t.db > -40.0 - 3.0 * count) {
+		if (t.db > -40.0 - 3.0 * static_cast<double>(count)) {
 			t.stabledb = t.db;
 			tones.push_back(t);
 		}
@@ -227,4 +207,29 @@ void Analyzer::mergeWithOld(tones_t& tones) const {
 void Analyzer::process() {
 	// Try calculating FFT and calculate tones until no more data in input buffer
 	while (calcFFT()) calcTones();
+}
+
+Tone const* Analyzer::findTone(double minfreq, double maxfreq) const {
+	if (m_tones.empty()) {
+		m_oldfreq = 0.0;
+		return nullptr;
+	}
+	double db = std::max_element(m_tones.begin(), m_tones.end(), Tone::dbCompare)->db;
+	Tone const* best = nullptr;
+	double bestscore = 0;
+	for (tones_t::const_iterator it = m_tones.begin(); it != m_tones.end(); ++it) {
+		if (it->db < db - 20.0 || it->freq < minfreq || it->age < Tone::MINAGE)
+			continue;
+		if (it->freq > maxfreq)
+			break;
+		double score = it->db - std::max(180.0, std::abs(it->freq - 300.0)) / 10.0;
+		if (m_oldfreq != 0.0 && std::fabs(it->freq/m_oldfreq - 1.0) < 0.05)
+			score += 10.0;
+		if (best && bestscore > score)
+			break;
+		best = &*it;
+		bestscore = score;
+	}
+	m_oldfreq = (best ? best->freq : 0.0);
+	return best;
 }
